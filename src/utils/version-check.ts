@@ -8,7 +8,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 
-const PKG = 'agency-orchestrator';
+export const PKG = 'agency-orchestrator';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const cacheFile = join(homedir(), '.ao', 'version-check.json');
 
@@ -32,7 +32,7 @@ function writeCache(c: Cache): void {
 }
 
 /** 简单 semver 比较：a > b 返回 true */
-function isNewer(a: string, b: string): boolean {
+export function isNewer(a: string, b: string): boolean {
   const pa = a.split(/[.-]/).map(n => parseInt(n, 10));
   const pb = b.split(/[.-]/).map(n => parseInt(n, 10));
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
@@ -41,6 +41,43 @@ function isNewer(a: string, b: string): boolean {
     if (x < y) return false;
   }
   return false;
+}
+
+/** 拉取 npm 上的最新版本号；网络失败/超时返回 null（静默）。 */
+export async function fetchLatestVersion(timeoutMs = 5000): Promise<string | null> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const res = await fetch(`https://registry.npmjs.org/${PKG}/latest`, {
+      signal: ctrl.signal,
+      headers: { accept: 'application/json' },
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const data = await res.json() as { version?: string };
+    return data.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 根据 CLI 自身的安装路径推断该用哪个包管理器升级。
+ * 纯函数，便于测试；可用 AO_UPGRADE_CMD 环境变量整条覆盖。
+ * @param pkgSpec 形如 "agency-orchestrator@1.2.3"
+ * @param selfPath 当前模块路径（fileURLToPath(import.meta.url)）
+ */
+export function detectUpgradeCommand(
+  pkgSpec: string,
+  selfPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (env.AO_UPGRADE_CMD) return env.AO_UPGRADE_CMD;
+  const p = selfPath.replace(/\\/g, '/').toLowerCase();
+  if (p.includes('/pnpm/') || p.includes('/.pnpm/')) return `pnpm add -g ${pkgSpec}`;
+  if (p.includes('/.bun/') || p.includes('/bun/install/')) return `bun add -g ${pkgSpec}`;
+  if (p.includes('/.yarn/') || p.includes('/yarn/global/')) return `yarn global add ${pkgSpec}`;
+  return `npm i -g ${pkgSpec}`;
 }
 
 function printHint(current: string, latest: string): void {
@@ -75,19 +112,7 @@ export function scheduleUpdateCheck(currentVersion: string): void {
 
   // 后台异步拉取：不阻塞 CLI，失败静默
   (async () => {
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 3000);
-      const res = await fetch(`https://registry.npmjs.org/${PKG}/latest`, {
-        signal: ctrl.signal,
-        headers: { accept: 'application/json' },
-      });
-      clearTimeout(timer);
-      if (!res.ok) return;
-      const data = await res.json() as { version?: string };
-      if (data.version) {
-        writeCache({ checkedAt: Date.now(), latest: data.version });
-      }
-    } catch { /* silent */ }
+    const latest = await fetchLatestVersion(3000);
+    if (latest) writeCache({ checkedAt: Date.now(), latest });
   })().catch(() => { /* silent */ });
 }

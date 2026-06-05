@@ -16,8 +16,8 @@ import { parseWorkflow, validateWorkflow } from './core/parser.js';
 import type { LLMConfig } from './types.js';
 import { buildDAG, formatDAG } from './core/dag.js';
 import { listAgents } from './agents/loader.js';
-import { run } from './index.js';
-import { scheduleUpdateCheck } from './utils/version-check.js';
+import { run, findAgentsDir } from './index.js';
+import { scheduleUpdateCheck, fetchLatestVersion, isNewer, detectUpgradeCommand, PKG } from './utils/version-check.js';
 import { t, detectLang } from './i18n.js';
 import { loadEnvFile, writeEnvFile, ensureEnvGitignored } from './utils/env-loader.js';
 import { parseDuration } from './utils/duration.js';
@@ -73,13 +73,17 @@ async function main(): Promise<void> {
     case 'serve':
       await handleServe();
       break;
+    case 'upgrade':
+    case 'self-update':
+      await handleUpgrade();
+      break;
     case '--version':
     case '-v':
       console.log(getVersion());
       break;
     default: {
       // 容错：用户可能漏了空格，如 "planworkflows/x.yaml"
-      const knownCmds = ['run', 'validate', 'plan', 'explain', 'compose', 'demo', 'roles', 'init', 'serve'];
+      const knownCmds = ['run', 'validate', 'plan', 'explain', 'compose', 'demo', 'roles', 'init', 'serve', 'upgrade'];
       const match = knownCmds.find(c => command.startsWith(c) && command.length > c.length);
       if (match) {
         console.error(`看起来少了个空格？试试:\n  ao ${match} ${command.slice(match.length)}\n`);
@@ -176,7 +180,8 @@ function handleValidate(): void {
 
   try {
     const workflow = parseWorkflow(resolve(filePath));
-    const errors = validateWorkflow(workflow);
+    const agentsDir = findAgentsDir(workflow.agents_dir, resolve(filePath)) ?? undefined;
+    const errors = validateWorkflow(workflow, agentsDir);
 
     if (errors.length === 0) {
       console.log(`  ${t('validate.ok', { name: workflow.name })}`);
@@ -203,7 +208,8 @@ function handlePlan(): void {
 
   try {
     const workflow = parseWorkflow(resolve(filePath));
-    const errors = validateWorkflow(workflow);
+    const agentsDir = findAgentsDir(workflow.agents_dir, resolve(filePath)) ?? undefined;
+    const errors = validateWorkflow(workflow, agentsDir);
     if (errors.length > 0) {
       console.error(`${t('plan.validate_failed')}\n${errors.map(e => `  - ${e}`).join('\n')}`);
       process.exit(1);
@@ -227,7 +233,8 @@ async function handleExplain(): Promise<void> {
 
   try {
     const workflow = parseWorkflow(resolve(filePath));
-    const errors = validateWorkflow(workflow);
+    const agentsDir = findAgentsDir(workflow.agents_dir, resolve(filePath)) ?? undefined;
+    const errors = validateWorkflow(workflow, agentsDir);
     if (errors.length > 0) {
       console.error(`校验失败:\n${errors.map(e => `  - ${e}`).join('\n')}`);
       process.exit(1);
@@ -724,6 +731,47 @@ function getArgValue(flag: string): string | undefined {
     return args[idx + 1];
   }
   return undefined;
+}
+
+/**
+ * ao upgrade — 自我升级：拉取 npm 最新版，比对后自动用对应包管理器升级。
+ *   ao upgrade            检测并升级到最新版
+ *   ao upgrade --check    只检查不升级（干跑，CI 友好）
+ * 包管理器自动从安装路径推断，可用 AO_UPGRADE_CMD 覆盖整条命令。
+ */
+async function handleUpgrade(): Promise<void> {
+  const current = getVersion();
+  const checkOnly = args.includes('--check') || args.includes('--dry-run');
+
+  console.log(t('upgrade.checking', { pkg: PKG }));
+  const latest = await fetchLatestVersion();
+  if (!latest) {
+    console.error(t('upgrade.fetch_failed'));
+    process.exit(1);
+  }
+
+  if (!isNewer(latest, current)) {
+    console.log(t('upgrade.up_to_date', { v: current }));
+    return;
+  }
+
+  console.log(t('upgrade.available', { current, latest }));
+  const cmd = detectUpgradeCommand(`${PKG}@${latest}`, fileURLToPath(import.meta.url));
+
+  if (checkOnly) {
+    console.log(t('upgrade.check_hint', { cmd }));
+    return;
+  }
+
+  console.log(t('upgrade.running', { cmd }) + '\n');
+  try {
+    execSync(cmd, { stdio: 'inherit' });
+  } catch {
+    // 全局安装常因权限失败；给出可操作提示而非堆栈
+    console.error('\n' + t('upgrade.run_failed', { cmd }));
+    process.exit(1);
+  }
+  console.log('\n' + t('upgrade.done', { latest }));
 }
 
 function getVersion(): string {

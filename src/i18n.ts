@@ -146,6 +146,38 @@ const dict: Dict = {
   'dag.deps': { zh: '依赖', en: 'depends on' },
   'dag.condition': { zh: '条件', en: 'condition' },
   'dag.loop': { zh: '循环: → {to} (最多 {n} 次)', en: 'loop: → {to} (max {n} iter)' },
+  'upgrade.checking': {
+    zh: '正在检查 {pkg} 的最新版本...',
+    en: 'Checking latest version of {pkg}...',
+  },
+  'upgrade.fetch_failed': {
+    zh: '✗ 无法获取最新版本（网络问题？）。可稍后重试，或手动运行 npm i -g agency-orchestrator@latest',
+    en: '✗ Could not fetch latest version (network issue?). Retry later, or run npm i -g agency-orchestrator@latest manually',
+  },
+  'upgrade.up_to_date': {
+    zh: '✓ 已是最新版本 ({v})',
+    en: '✓ Already up to date ({v})',
+  },
+  'upgrade.available': {
+    zh: '发现新版本: {current} → {latest}',
+    en: 'New version available: {current} → {latest}',
+  },
+  'upgrade.check_hint': {
+    zh: '运行 `ao upgrade` 升级，或手动执行: {cmd}',
+    en: 'Run `ao upgrade` to upgrade, or manually: {cmd}',
+  },
+  'upgrade.running': {
+    zh: '正在升级: {cmd}',
+    en: 'Upgrading: {cmd}',
+  },
+  'upgrade.run_failed': {
+    zh: '✗ 升级失败。可能是权限问题，请手动运行（必要时加 sudo）:\n  {cmd}',
+    en: '✗ Upgrade failed. Likely a permissions issue — run manually (use sudo if needed):\n  {cmd}',
+  },
+  'upgrade.done': {
+    zh: '✓ 已升级到 {latest}',
+    en: '✓ Upgraded to {latest}',
+  },
   'help.text': {
     zh: `
   agency-orchestrator — 多智能体工作流引擎
@@ -172,6 +204,7 @@ const dict: Dict = {
     plan <workflow.yaml>              查看执行计划
     explain <workflow.yaml>           用自然语言解释执行计划
     roles [--agents-dir path]         列出可用角色
+    upgrade [--check]                 自我升级到最新版（--check 只检查不安装）
 
   选项:
     --input, -i key=value    传入输入变量
@@ -226,6 +259,7 @@ const dict: Dict = {
     plan <workflow.yaml>              Show execution plan
     explain <workflow.yaml>           Explain the plan in natural language
     roles [--agents-dir path]         List available roles
+    upgrade [--check]                 Self-update to the latest version (--check: check only)
 
   Options:
     --input, -i key=value    Pass an input variable
