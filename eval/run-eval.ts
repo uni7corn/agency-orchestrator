@@ -26,7 +26,9 @@ const IS_CLI_PROVIDER = PROVIDER.endsWith('-cli') || PROVIDER === 'claude-code';
 const MODEL = process.env.AO_EVAL_MODEL || (IS_CLI_PROVIDER ? '' : 'llama3');
 const llm: LLMConfig = { provider: PROVIDER, model: MODEL, max_tokens: 2048, timeout: 600_000 };
 
-const JUDGE_TRUNC = 3500; // 每份产出喂给 judge 前截断，避免超 judge 上下文
+// 截断上限要足够大：太小会把更长/更完整的产出尾部（常含结论）切掉，
+// 系统性惩罚长产出——而"完整性"正是要测的维度。强 judge 可吃数万字。
+const JUDGE_TRUNC = 20000;
 const trunc = (s: string) => (s.length > JUDGE_TRUNC ? s.slice(0, JUDGE_TRUNC) + '\n…[截断]' : s);
 
 /**
