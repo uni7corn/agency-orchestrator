@@ -1,7 +1,7 @@
 /**
  * 动态首次超时测试：按输入规模抬高未显式设置 timeout 的首跑超时。
  */
-import { dynamicInitialTimeout } from '../src/core/executor.js';
+import { dynamicInitialTimeout, timeoutFailureHint } from '../src/core/executor.js';
 
 let passed = 0, failed = 0;
 function test(name: string, fn: () => void): void {
@@ -44,6 +44,19 @@ test('CLI 默认(600s)同样叠加', () => {
 
 test('负 inputChars 不报错也不减时', () => {
   assert(dynamicInitialTimeout(DEF, -50) === DEF, '负数当 0 处理');
+});
+
+console.log('\n=== timeoutFailureHint ===');
+
+test('通用 provider：给出增大超时/拆分/换 provider 三条指引', () => {
+  const h = timeoutFailureHint('openai');
+  assert(h.includes('增大超时') && h.includes('拆分') && h.includes('换'), h);
+  assert(!h.includes('DeepSeek'), '非 deepseek 不该带 deepseek 专条');
+});
+
+test('deepseek：附带服务端中断专属说明', () => {
+  const h = timeoutFailureHint('deepseek');
+  assert(h.includes('DeepSeek') && h.includes('流式'), h);
 });
 
 console.log('\n' + '='.repeat(50));

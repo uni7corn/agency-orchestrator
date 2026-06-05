@@ -275,6 +275,25 @@ export function dynamicInitialTimeout(defaultTimeout: number, inputChars: number
   return defaultTimeout + extra;
 }
 
+/**
+ * 步骤因超时/连接中断耗尽重试后，给用户可操作的修复指引（按 provider 定制）。
+ * 把"streaming terminated / timeout"这种死胡同变成"下一步该怎么做"，是激活漏斗里
+ * 用户决定去留的关键一刻。
+ */
+export function timeoutFailureHint(provider: string): string {
+  const lines = [
+    '',
+    '  💡 该步骤因超时/连接中断失败。可尝试 / On timeout, try:',
+    '     1. 增大超时：YAML 顶层或该 step 设 timeout（如 600s），或 --timeout 0 不限时',
+    '     2. 拆分任务：把这步拆成多个更小的 step（每步输出更短，单步更快返回）',
+    '     3. 换更稳的 provider/model',
+  ];
+  if (provider === 'deepseek') {
+    lines.push('     · DeepSeek 长生成易被服务端中断；已默认流式，仍建议拆细任务或换 provider');
+  }
+  return lines.join('\n');
+}
+
 async function executeStep(
   node: DAGNode,
   opts: {
@@ -402,6 +421,10 @@ async function executeStep(
     return partial;
   }
 
+  // 超时/连接类失败：在错误信息后附上可操作指引（基于 effectiveConfig.provider）
+  if (lastError && classifyError(lastError) === 'connection') {
+    lastError.message += timeoutFailureHint(effectiveConfig.provider);
+  }
   throw lastError || new Error(`step "${node.step.id}" 执行失败`);
 }
 
