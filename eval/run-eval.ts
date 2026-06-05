@@ -20,11 +20,19 @@ import { parseWorkflow } from '../src/core/parser.js';
 import { createConnector } from '../src/connectors/factory.js';
 import type { LLMConfig, WorkflowResult, InputDefinition } from '../src/types.js';
 
-const PROVIDER = process.env.AO_EVAL_PROVIDER || 'ollama';
-// CLI 类 provider（claude-code / *-cli）model 留空即用 CLI 默认模型；否则默认 llama3。
-const IS_CLI_PROVIDER = PROVIDER.endsWith('-cli') || PROVIDER === 'claude-code';
-const MODEL = process.env.AO_EVAL_MODEL || (IS_CLI_PROVIDER ? '' : 'llama3');
-const llm: LLMConfig = { provider: PROVIDER, model: MODEL, max_tokens: 2048, timeout: 600_000 };
+const isCli = (p: string) => p.endsWith('-cli') || p === 'claude-code';
+const modelFor = (p: string, env?: string) => env || (isCli(p) ? '' : 'llama3');
+
+// 生成与评审分离：生成用弱模型（ollama，测 ao 真实卖点——分工能否抬高弱模型），
+// 评审用强模型（claude-code，给可信判别）。AO_EVAL_PROVIDER 作为两者的旧版兜底。
+const GEN_PROVIDER = process.env.AO_GEN_PROVIDER || process.env.AO_EVAL_PROVIDER || 'ollama';
+const GEN_MODEL = modelFor(GEN_PROVIDER, process.env.AO_GEN_MODEL || process.env.AO_EVAL_MODEL);
+const JUDGE_PROVIDER = process.env.AO_JUDGE_PROVIDER || 'claude-code';
+const JUDGE_MODEL = modelFor(JUDGE_PROVIDER, process.env.AO_JUDGE_MODEL);
+const RUNS = Math.max(1, parseInt(process.env.AO_EVAL_RUNS || '1', 10)); // 每模板跑 N 次取平均，压噪音
+
+const genLlm: LLMConfig = { provider: GEN_PROVIDER, model: GEN_MODEL, max_tokens: 2048, timeout: 600_000 };
+const judgeLlm: LLMConfig = { provider: JUDGE_PROVIDER, model: JUDGE_MODEL, max_tokens: 400, timeout: 600_000 };
 
 // 截断上限要足够大：太小会把更长/更完整的产出尾部（常含结论）切掉，
 // 系统性惩罚长产出——而"完整性"正是要测的维度。强 judge 可吃数万字。
@@ -90,7 +98,7 @@ function parseJudge(raw: string): { scoreA: number; scoreB: number; reason: stri
 }
 
 async function judge(taskDesc: string, outA: string, outB: string) {
-  const conn = createConnector(llm);
+  const conn = createConnector(judgeLlm);
   const prompt = [
     '你是严格、客观的内容质量评审。下面是针对同一任务的两份产出，请对比。',
     `任务：${taskDesc}`,
@@ -103,7 +111,7 @@ async function judge(taskDesc: string, outA: string, outB: string) {
     const sys = attempt === 0
       ? '你是严格客观的评审，只输出 JSON。'
       : '你必须只输出一行纯 JSON，绝对不要代码块标记、前言或任何解释文字。';
-    const res = await conn.chat(sys, prompt, { ...llm, max_tokens: 400 });
+    const res = await conn.chat(sys, prompt, { ...judgeLlm, max_tokens: 400 });
     const parsed = parseJudge(res.content);
     if (parsed) return parsed;
   }
@@ -119,48 +127,54 @@ interface EvalRow {
   workflow: string; multiScore: number; baseScore: number;
   winner: 'multi-agent' | 'baseline' | 'tie'; reasons: string[];
   multiLen: number; baseLen: number;
-  /** 两次盲评是否对"真实产物"达成一致；false 多半是 judge 位置偏置→无判别力 */
+  /** 末次盲评双向是否一致；false 多半是 judge 位置偏置→无判别力 */
   consistent: boolean;
+  runs: number;       // 实际有效评测次数
+  multiWins: number;  // N 次里多智能体得分更高的次数（稳定性）
   error?: string;
 }
 
+const avg = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
+
 async function evalOne(wfPath: string): Promise<EvalRow> {
   const name = basename(wfPath);
-  const row: EvalRow = { workflow: name, multiScore: 0, baseScore: 0, winner: 'tie', reasons: [], multiLen: 0, baseLen: 0, consistent: false };
+  const row: EvalRow = { workflow: name, multiScore: 0, baseScore: 0, winner: 'tie', reasons: [], multiLen: 0, baseLen: 0, consistent: false, runs: 0, multiWins: 0 };
   try {
     const wf = parseWorkflow(resolve(wfPath));
     const inputs = { ...resolveInputs(wf.inputs), ...(FIXTURES[name] || {}) };
     const baselineTask = buildBaselineTask(wf.name, wf.description, inputs);
-
     console.log(`\n▶ ${name}`);
-    console.log('  · 跑多智能体工作流…');
-    const result = await run(wfPath, inputs, {
-      quiet: true, outputDir: 'eval-output/.runs',
-      llmOverride: { provider: PROVIDER, model: MODEL },
-    });
-    const multiOut = finalOutput(result);
-    row.multiLen = multiOut.length;
 
-    console.log('  · 跑单次基线…');
-    const conn = createConnector(llm);
-    const baseOut = (await conn.chat('你是能力很强的助手，直接产出高质量的最终成品。', baselineTask, llm)).content;
-    row.baseLen = baseOut.length;
+    const mScores: number[] = [], bScores: number[] = [], mLens: number[] = [], bLens: number[] = [];
+    for (let r = 0; r < RUNS; r++) {
+      console.log(`  · run ${r + 1}/${RUNS}: 生成(${GEN_PROVIDER})…`);
+      const result = await run(wfPath, inputs, {
+        quiet: true, outputDir: 'eval-output/.runs',
+        llmOverride: { provider: GEN_PROVIDER, model: GEN_MODEL },
+      });
+      const multiOut = finalOutput(result);
+      const conn = createConnector(genLlm);
+      const baseOut = (await conn.chat('你是能力很强的助手，直接产出高质量的最终成品。', baselineTask, genLlm)).content;
 
-    console.log('  · 盲评（双向各一次）…');
-    const j1 = await judge(baselineTask, multiOut, baseOut);          // A=multi, B=base
-    const j2 = await judge(baselineTask, baseOut, multiOut);          // A=base,  B=multi
-    if (!j1 || !j2) { row.error = 'judge 输出无法解析为 JSON'; return row; }
+      console.log(`    盲评(${JUDGE_PROVIDER})…`);
+      const j1 = await judge(baselineTask, multiOut, baseOut);   // A=multi, B=base
+      const j2 = await judge(baselineTask, baseOut, multiOut);   // A=base,  B=multi
+      if (!j1 || !j2) { console.log('    ⚠️ judge 解析失败，跳过本 run'); continue; }
 
-    row.multiScore = (j1.scoreA + j2.scoreB) / 2;
-    row.baseScore = (j1.scoreB + j2.scoreA) / 2;
-    row.reasons = [j1.reason, j2.reason].filter(Boolean);
+      const ms = (j1.scoreA + j2.scoreB) / 2, bs = (j1.scoreB + j2.scoreA) / 2;
+      mScores.push(ms); bScores.push(bs); mLens.push(multiOut.length); bLens.push(baseOut.length);
+      if (ms > bs) row.multiWins++;
+      if (row.reasons.length < 2) row.reasons = [j1.reason, j2.reason].filter(Boolean);
+      // 一致性：pass1 认为 multi 更好(scoreA>scoreB) 应与 pass2(scoreB>scoreA) 同向
+      const p1 = j1.scoreA - j1.scoreB, p2 = j2.scoreB - j2.scoreA;
+      row.consistent = Math.sign(p1) === Math.sign(p2) && p1 !== 0;
+      row.runs++;
+    }
+    if (row.runs === 0) { row.error = 'judge 全部解析失败'; return row; }
+    row.multiScore = avg(mScores); row.baseScore = avg(bScores);
+    row.multiLen = Math.round(avg(mLens)); row.baseLen = Math.round(avg(bLens));
     row.winner = row.multiScore > row.baseScore ? 'multi-agent'
       : row.baseScore > row.multiScore ? 'baseline' : 'tie';
-    // 一致性：pass1 认为 multi 更好(scoreA>scoreB) 应与 pass2 认为 multi 更好(scoreB>scoreA) 同向。
-    // 若两次都偏向同一"位置"（如都选 B），说明 judge 只看位置不看内容→结论不可信。
-    const p1MultiBetter = j1.scoreA - j1.scoreB;   // >0 多智能体更好
-    const p2MultiBetter = j2.scoreB - j2.scoreA;   // >0 多智能体更好
-    row.consistent = Math.sign(p1MultiBetter) === Math.sign(p2MultiBetter) && p1MultiBetter !== 0;
   } catch (err) {
     row.error = err instanceof Error ? err.message.split('\n')[0] : String(err);
   }
@@ -168,31 +182,31 @@ async function evalOne(wfPath: string): Promise<EvalRow> {
 }
 
 (async () => {
+  const setup = `生成 ${GEN_PROVIDER}/${GEN_MODEL || '默认'}　评审 ${JUDGE_PROVIDER}/${JUDGE_MODEL || '默认'}　每模板 ${RUNS} 次取平均`;
   console.log(`\n=== AO 质量评测闭环 ===`);
-  console.log(`provider/model: ${PROVIDER}/${MODEL}　|　工作流: ${workflows.length} 个`);
-  console.log(`方法：多智能体产出 vs 单次基线，judge 双向盲评取平均（抵消位置偏置）`);
+  console.log(`${setup}　|　工作流 ${workflows.length} 个`);
+  console.log(`方法：多智能体 vs 单次基线，judge 双向盲评取平均（抵消位置偏置）`);
 
   const rows: EvalRow[] = [];
   for (const wf of workflows) rows.push(await evalOne(wf));
 
   // 报告
-  const lines: string[] = ['# AO 质量评测报告', '', `provider/model: ${PROVIDER}/${MODEL}`, ''];
-  lines.push('| 工作流 | 多智能体 | 单次基线 | 胜者 | 可信度 | 多/基线长度 |');
-  lines.push('|---|---|---|---|---|---|');
+  const lines: string[] = ['# AO 质量评测报告', '', setup, ''];
+  lines.push('| 工作流 | 多智能体 | 单次基线 | 胜者 | 稳定性(多胜/总) | 末次可信度 | 多/基线长度 |');
+  lines.push('|---|---|---|---|---|---|---|');
   let multiWins = 0, baseWins = 0, ties = 0, evaluated = 0, lowConf = 0;
   for (const r of rows) {
-    if (r.error) { lines.push(`| ${r.workflow} | — | — | ⚠️ ${r.error} | — | — |`); continue; }
+    if (r.error) { lines.push(`| ${r.workflow} | — | — | ⚠️ ${r.error} | — | — | — |`); continue; }
     evaluated++;
     if (r.winner === 'multi-agent') multiWins++; else if (r.winner === 'baseline') baseWins++; else ties++;
     if (!r.consistent) lowConf++;
     const mark = r.winner === 'multi-agent' ? '✅ 多智能体' : r.winner === 'baseline' ? '❌ 基线' : '➖ 平';
-    const conf = r.consistent ? '高（双向一致）' : '低（judge 位置偏置）';
-    lines.push(`| ${r.workflow} | ${r.multiScore.toFixed(1)} | ${r.baseScore.toFixed(1)} | ${mark} | ${conf} | ${r.multiLen}/${r.baseLen} |`);
+    const conf = r.consistent ? '高' : '低(位置偏置)';
+    lines.push(`| ${r.workflow} | ${r.multiScore.toFixed(1)} | ${r.baseScore.toFixed(1)} | ${mark} | ${r.multiWins}/${r.runs} | ${conf} | ${r.multiLen}/${r.baseLen} |`);
   }
   lines.push('', `**汇总**：评测 ${evaluated} 个 — 多智能体胜 ${multiWins}，基线胜 ${baseWins}，平 ${ties}`);
   if (lowConf > 0) {
-    lines.push('', `⚠️ ${lowConf}/${evaluated} 个评测可信度低：两次盲评只跟随位置、不随内容变化，说明当前 judge（${PROVIDER}/${MODEL}）判别力不足。`,
-      '换更强的 judge（如 deepseek/claude + key：AO_EVAL_PROVIDER/AO_EVAL_MODEL）才能得到可信结论。');
+    lines.push('', `⚠️ ${lowConf}/${evaluated} 个末次盲评可信度低（位置偏置）。多次取平均可压噪音；如仍多为低可信，说明 judge 判别力不足或两份产出确实接近。`);
   }
   for (const r of rows) if (r.reasons.length) lines.push('', `### ${r.workflow}`, ...r.reasons.map(x => `- ${x}`));
 
