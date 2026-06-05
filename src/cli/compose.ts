@@ -160,6 +160,7 @@ ${autoRun ? '      Include specific information from the user\'s description' : 
 - **Detailed tasks**: Task descriptions should be specific — tell the role what to do and what format to output
 ${inputsDesignPrinciple}
 - **Final deliverable**: The last step must output the final deliverable the user wants (e.g., complete article, complete report), not review comments or suggestions. If there's a review step, it should output the revised final version, not a "list of suggestions"
+- **Clean final output (IMPORTANT)**: The LAST step's \`task\` MUST end with an explicit instruction to output ONLY the deliverable itself — no preamble/greeting, no "what I changed"/change-log, no formatting notes, no questions to the user, no suggestions to run \`ao\`/other commands, no "shall I continue?" closers. Append a line like: "⚠️ Output only the final deliverable itself — no preamble, no change-log, no meta-commentary, no questions, no tool/command suggestions."
 
 ## Available Role Catalog
 
@@ -259,6 +260,7 @@ ${autoRun ? '      直接包含用户需求中的具体信息' : '      使用 {
 - **任务详细**：task 描述要具体，告诉角色要做什么、输出什么格式
 ${inputsDesignPrinciple}
 - **最终成品**：最后一个步骤必须输出用户想要的最终成品（如完整文章、完整报告），而不是审查意见或修改建议。如果有审校步骤，审校步骤应该直接输出修改后的定稿，而不是"修改建议列表"
+- **干净的最终产出（重要）**：最后一个步骤的 \`task\` 结尾必须显式要求"只输出成品本身"——不要开场白/寒暄、不要"我改了什么/复盘/修改说明"、不要排版备注小节、不要向用户提问或请其拍板、不要建议运行 \`ao\` 或其它命令、不要"要我继续吗"之类收尾。请在该 step 的 task 末尾追加一行类似：「⚠️ 只输出最终成品本身：不要开场白、不要复盘或说明、不要向用户提问、不要建议任何命令或后续动作。」
 
 ## 可用角色目录
 
