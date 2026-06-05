@@ -257,6 +257,24 @@ export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<Wo
   };
 }
 
+/**
+ * 按输入规模动态抬高"首次尝试"的超时：大输入（系统提示 + 渲染后的任务，含上游注入的
+ * 长文本）往往意味着更长的处理/生成时间。与其让它第一次必超时、再靠 retry 把 timeout
+ * x1.5 慢慢爬上来，不如一开始就给足，减少首跑失败——这对粘贴大段 PRD/文档的激活场景尤其重要。
+ *
+ * - 仅在用户未显式设置 timeout 时生效（显式值，含 0=不限时，原样尊重）。
+ * - 在 provider 默认值之上叠加，单独设上限；retry 仍可在此基础上继续 x1.5。
+ * @param defaultTimeout provider 默认超时 ms（API 120s / CLI·ollama 600s），0=不限时
+ * @param inputChars 系统提示 + 用户消息的字符数
+ */
+export function dynamicInitialTimeout(defaultTimeout: number, inputChars: number): number {
+  if (defaultTimeout <= 0) return defaultTimeout; // 0 / 负数 = 不限时，不动
+  const PER_1K_MS = 8_000;       // 每 1K 字符输入额外 +8s
+  const MAX_EXTRA_MS = 600_000;  // 动态部分最多 +10min（避免误注入超大文本时放飞）
+  const extra = Math.min(Math.floor(Math.max(inputChars, 0) / 1000) * PER_1K_MS, MAX_EXTRA_MS);
+  return defaultTimeout + extra;
+}
+
 async function executeStep(
   node: DAGNode,
   opts: {
@@ -319,14 +337,18 @@ async function executeStep(
   const effectiveIsCLI = effectiveConfig.provider.endsWith('-cli') || effectiveConfig.provider === 'claude-code';
   const effectiveIsLocal = effectiveConfig.provider === 'ollama';
   // timeout 策略：
-  // - 用户显式设置（含 timeout: 0 表示不限时）→ 第一次按此值
-  // - 未设置 → provider 默认（API 120s / CLI/ollama 600s）
+  // - 用户显式设置（含 timeout: 0 表示不限时）→ 第一次按此值，不做动态调整
+  // - 未设置 → provider 默认（API 120s / CLI/ollama 600s），再按输入规模动态抬高首次超时
+  //   （dynamicInitialTimeout：大输入一开始就给足，少一次必然的首跑超时）
   // - 因超时触发 retry 时，下一轮 timeout x1.5（上限 3600s / 60min）
   //   非超时类错误（429/500/ECONNRESET 等）保持原 timeout，避免无谓放大
   // - 上限是防误配置放飞的保险丝（retry 10 次可能放大到几十小时），
   //   真要超过 1 小时单步请用 timeout: 0 / --timeout 0 完全不限时
   const defaultTimeout = effectiveIsCLI ? 600_000 : effectiveIsLocal ? 600_000 : 120_000;
-  const baseTimeout = effectiveConfig.timeout !== undefined ? effectiveConfig.timeout : defaultTimeout;
+  const inputChars = systemPrompt.length + userMessage.length;
+  const baseTimeout = effectiveConfig.timeout !== undefined
+    ? effectiveConfig.timeout
+    : dynamicInitialTimeout(defaultTimeout, inputChars);
   const effectiveMaxRetry = effectiveConfig.retry ?? opts.maxRetry;
   const TIMEOUT_CAP = 3_600_000;
 
