@@ -2,6 +2,7 @@ node_modules/
 dist/
 ao-output/
 .ao-output/
+ao-workflows/
 *.tgz
 .DS_Store
 .private/
