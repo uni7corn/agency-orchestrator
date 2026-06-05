@@ -17,6 +17,7 @@ import type { LLMConfig } from './types.js';
 import { buildDAG, formatDAG } from './core/dag.js';
 import { listAgents } from './agents/loader.js';
 import { run, findAgentsDir } from './index.js';
+import { formatValidationReport } from './cli/validate-report.js';
 import { scheduleUpdateCheck, fetchLatestVersion, isNewer, detectUpgradeCommand, PKG } from './utils/version-check.js';
 import { t, detectLang } from './i18n.js';
 import { loadEnvFile, writeEnvFile, ensureEnvGitignored } from './utils/env-loader.js';
@@ -50,7 +51,7 @@ async function main(): Promise<void> {
       await handleRun();
       break;
     case 'validate':
-      await handleValidate();
+      handleValidate();
       break;
     case 'plan':
       handlePlan();
@@ -171,7 +172,7 @@ async function handleRun(): Promise<void> {
   }
 }
 
-async function handleValidate(): Promise<void> {
+function handleValidate(): void {
   const filePath = args[1];
   if (!filePath) {
     console.error(t('validate.usage'));
@@ -187,7 +188,6 @@ async function handleValidate(): Promise<void> {
       console.log(`  ${t('validate.ok', { name: workflow.name })}`);
       console.log(`  ${t('validate.stats', { steps: workflow.steps.length, inputs: (workflow.inputs || []).length })}`);
     } else {
-      const { formatValidationReport } = await import('./cli/validate-report.js');
       console.error('\n' + formatValidationReport(workflow.name, errors, workflow.steps.map(s => s.id)));
       process.exit(1);
     }
@@ -209,7 +209,7 @@ function handlePlan(): void {
     const agentsDir = findAgentsDir(workflow.agents_dir, resolve(filePath)) ?? undefined;
     const errors = validateWorkflow(workflow, agentsDir);
     if (errors.length > 0) {
-      console.error(`${t('plan.validate_failed')}\n${errors.map(e => `  - ${e}`).join('\n')}`);
+      console.error('\n' + formatValidationReport(workflow.name, errors, workflow.steps.map(s => s.id)));
       process.exit(1);
     }
 
@@ -234,7 +234,7 @@ async function handleExplain(): Promise<void> {
     const agentsDir = findAgentsDir(workflow.agents_dir, resolve(filePath)) ?? undefined;
     const errors = validateWorkflow(workflow, agentsDir);
     if (errors.length > 0) {
-      console.error(`校验失败:\n${errors.map(e => `  - ${e}`).join('\n')}`);
+      console.error('\n' + formatValidationReport(workflow.name, errors, workflow.steps.map(s => s.id)));
       process.exit(1);
     }
 
