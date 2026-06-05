@@ -14,3 +14,4 @@ scripts/fake-*.sh
 web/
 demo.gif
 serve.json
+eval-output/
