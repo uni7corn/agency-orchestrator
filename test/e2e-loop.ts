@@ -270,6 +270,83 @@ steps:
   assert(capturedIterations[3] === 'revise-2', `第二轮 revise 应为 2，实际: ${capturedIterations[3]}`);
 });
 
+// ─── Test 5: 循环回跳不应重跑同层的并行旁支（不在循环依赖链上的节点）───
+await test('loop 回跳保护并行旁支: 旁支只执行一次', async () => {
+  const yamlPath = resolve(tmpDir, 'loop-sibling.yaml');
+  // sidebar 与 review 同层(都依赖 draft)，但不在 review→revise 的循环链上
+  writeFileSync(yamlPath, `
+name: 循环旁支保护测试
+description: loop should not re-run parallel siblings
+agents_dir: ${agentsDir}
+${baseLlm}
+inputs:
+  - name: topic
+    required: true
+steps:
+  - id: draft
+    role: product/product-manager
+    task: "撰写关于 {{topic}} 的文案"
+    output: copy
+  - id: sidebar
+    role: product/product-manager
+    task: "侧栏分析 {{topic}}"
+    output: notes
+    depends_on:
+      - draft
+  - id: review
+    role: product/product-manager
+    task: "审查文案: {{copy}}"
+    output: feedback
+    depends_on:
+      - draft
+  - id: revise
+    role: product/product-manager
+    task: "根据反馈修改文案: {{feedback}}"
+    output: copy
+    depends_on:
+      - review
+    loop:
+      back_to: review
+      max_iterations: 5
+      exit_condition: "{{feedback}} contains 通过"
+`);
+
+  let sidebarCalls = 0;
+  let reviewCount = 0;
+  const mock: LLMConnector = {
+    async chat(_sys: string, user: string, _cfg: LLMConfig): Promise<LLMResult> {
+      let content: string;
+      if (user.includes('侧栏分析')) {
+        sidebarCalls++;
+        content = '侧栏分析结果';
+      } else if (user.includes('撰写')) {
+        content = '初始文案';
+      } else if (user.includes('审查')) {
+        reviewCount++;
+        content = reviewCount === 1 ? '不合格，需修改' : '通过，很好';
+      } else {
+        content = '修改后的文案';
+      }
+      return { content, usage: { input_tokens: 10, output_tokens: 10 } };
+    },
+  };
+
+  const wf = parseWorkflow(yamlPath);
+  const dag = buildDAG(wf);
+  const result = await executeDAG(dag, {
+    connector: mock,
+    agentsDir,
+    llmConfig: wf.llm,
+    concurrency: 2,
+    inputs: new Map([['topic', '产品发布']]),
+  });
+
+  assert(result.success, '工作流应成功');
+  // 循环了 1 轮(review 跑 2 次)，但 sidebar 不在循环链上，应只执行 1 次
+  assert(reviewCount === 2, `review 应执行 2 次(循环 1 轮)，实际: ${reviewCount}`);
+  assert(sidebarCalls === 1, `sidebar 是并行旁支，循环回跳不应重跑，应为 1 次，实际: ${sidebarCalls}`);
+});
+
 // 清理临时目录
 rmSync(tmpDir, { recursive: true });
 

@@ -1,6 +1,6 @@
 // 公开站「演示模式」数据层：没有本地后端时，专家库直接读静态数据
 // （experts.json + public/prompts/*.md），可浏览 / 查看 / 复制提示词，但不能真跑。
-import expertsData from "@/content/experts.json";
+// experts.json(~150kB)动态加载，避免被打进 Studio 首屏 chunk（只有进演示模式才取）。
 import type { Role } from "./studio";
 
 interface ExpertEntry {
@@ -13,10 +13,15 @@ interface ExpertEntry {
   color?: string;
 }
 
-const DATA = expertsData as { zh: ExpertEntry[]; en: ExpertEntry[] };
+let _data: { zh: ExpertEntry[]; en: ExpertEntry[] } | null = null;
+async function loadData() {
+  if (!_data) _data = (await import("@/content/experts.json")).default as { zh: ExpertEntry[]; en: ExpertEntry[] };
+  return _data;
+}
 
-export function demoRoles(lang: "zh" | "en"): Role[] {
-  const arr = DATA[lang] ?? DATA.zh;
+export async function demoRoles(lang: "zh" | "en"): Promise<Role[]> {
+  const data = await loadData();
+  const arr = data[lang] ?? data.zh;
   return arr.map((e) => ({
     id: e.id,
     category: e.category,

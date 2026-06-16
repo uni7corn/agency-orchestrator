@@ -19,24 +19,24 @@ export function evaluateCondition(
   condition: string,
   context: Map<string, string>
 ): boolean {
-  // 先替换变量
-  const rendered = renderTemplate(condition, context);
-
-  const match = rendered.match(KNOWN_OP_REGEX);
+  // 在「模板」(替换变量之前)上解析运算符：运算符位置由作者在 YAML 里写定，
+  // 不能用替换后的字符串来切分——否则变量值(LLM 产出)里恰好出现 contains/equals
+  // 会把条件从错误的位置切开，导致分支/循环退出被翻转。
+  const match = condition.match(KNOWN_OP_REGEX);
   if (!match) {
     // Check if the format looks valid but with an unsupported operator
-    const opMatch = rendered.match(ANY_OP_REGEX);
+    const opMatch = condition.match(ANY_OP_REGEX);
     if (opMatch) {
       throw new Error(`不支持的条件运算符: "${opMatch[1]}"。支持 contains 和 equals`);
     }
     throw new Error(`条件格式错误: "${condition}"。支持的格式: <text> contains <keyword> 或 <text> equals <keyword>`);
   }
 
-  // 将换行符替换为空格，避免多行 LLM 输出导致匹配问题
-  const left = match[1].trim().replace(/\n/g, ' ').toLowerCase();
+  // 仅对两侧操作数分别替换变量；换行替空格避免多行 LLM 输出干扰
+  const left = renderTemplate(match[1], context).trim().replace(/\n/g, ' ').toLowerCase();
   const operator = match[2].toLowerCase();
   // 去掉引号包裹
-  const right = match[3].trim().replace(/^["']|["']$/g, '').toLowerCase();
+  const right = renderTemplate(match[3], context).trim().replace(/^["']|["']$/g, '').toLowerCase();
 
   switch (operator) {
     case 'contains':

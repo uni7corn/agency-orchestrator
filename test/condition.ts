@@ -71,6 +71,19 @@ test('变量替换后再求值', () => {
   assert(evaluateCondition('{{feedback}} contains 通过', ctx) === true, '应处理中文');
 });
 
+// 回归：变量值里恰好出现运算符词不应翻转判定（运算符须从模板解析）
+test('变量值含 "contains" 不干扰运算符解析', () => {
+  const ctx = new Map([['out', 'the spec contains details']]);
+  assert(evaluateCondition('{{out}} contains 通过', ctx) === false, '右操作数应为模板里的「通过」，不应被值里的 contains 误导');
+  const ctx2 = new Map([['out', 'the spec contains the word 通过 somewhere']]);
+  assert(evaluateCondition('{{out}} contains 通过', ctx2) === true, '左值含 通过 应匹配');
+});
+
+test('变量值含 "equals" 不干扰运算符解析', () => {
+  const ctx = new Map([['out', 'x equals y']]);
+  assert(evaluateCondition('{{out}} equals approved', ctx) === false, '应按模板的 equals approved 比较，而非值里的 equals');
+});
+
 test('未知运算符抛错', () => {
   const ctx = new Map([['x', 'hello']]);
   try {

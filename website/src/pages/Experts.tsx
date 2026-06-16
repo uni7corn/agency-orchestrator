@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, Check, Copy, Search, X } from "lucide-react";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { useLanguage } from "@/i18n/LanguageProvider";
@@ -91,6 +91,13 @@ export default function Experts() {
       flash(`fail:${k}`);
     }
   };
+
+  useEffect(() => {
+    if (!modal) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setModal(null); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [modal]);
 
   const openModal = async (e: Expert) => {
     setModal(e);
@@ -221,6 +228,9 @@ export default function Experts() {
           onClick={() => setModal(null)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={modal.name}
             className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-border/70 bg-card shadow-2xl sm:rounded-2xl"
             onClick={(ev) => ev.stopPropagation()}
           >

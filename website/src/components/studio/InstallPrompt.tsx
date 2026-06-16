@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Download, TerminalSquare, X } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { useLanguage } from "@/i18n/LanguageProvider";
@@ -8,9 +9,17 @@ export function InstallPrompt({ onClose }: { onClose: () => void }) {
   const { t, prefix } = useLanguage();
   const d = t.studio.demo;
   const cmd = "npm i -g agency-orchestrator && ao web";
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/55 p-0 backdrop-blur-sm sm:items-center sm:p-6" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={d.installTitle}
         className="w-full max-w-lg overflow-hidden rounded-t-2xl border border-border/70 bg-background shadow-2xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >

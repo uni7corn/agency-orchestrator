@@ -109,6 +109,9 @@ export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<Wo
         onStepComplete?.(node);
         return false;
       }
+      // 循环回跳重跑时：已完成且不属于循环体的节点保持原样，不重复执行
+      // （首次正向执行时该层节点都是 pending，故此分支不影响正常流程）
+      if (node.status === 'completed') return false;
       return true;
     });
 
@@ -217,17 +220,32 @@ export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<Wo
             throw new Error(`loop.back_to "${loop.back_to}" 不在 DAG 层级中`);
           }
 
-          // 重置 back_to 到当前层之间的所有节点
-          for (let li = backToLevel; li <= levelIndex; li++) {
-            for (const nodeId of dag.levels[li]) {
-              const n = dag.nodes.get(nodeId)!;
-              n.status = 'pending';
-              n.result = undefined;
-              n.error = undefined;
-              n.startTime = undefined;
-              n.endTime = undefined;
-              n.tokenUsage = undefined;
+          // 只重置「循环体」：从 back_to 到当前循环节点之间、确实在依赖链上的节点
+          // （= 循环节点的祖先 ∩ back_to 的后代，含两端）。
+          // 不再重置同层但不在链上的并行旁支，避免它们被重复执行（含重复弹 human_input/approval）。
+          const ancestorsOfLoop = new Set<string>([id]);
+          const aStack = [id];
+          while (aStack.length) {
+            for (const dep of dag.nodes.get(aStack.pop()!)!.dependencies) {
+              if (!ancestorsOfLoop.has(dep)) { ancestorsOfLoop.add(dep); aStack.push(dep); }
             }
+          }
+          const descendantsOfBackTo = new Set<string>([loop.back_to]);
+          const dStack = [loop.back_to];
+          while (dStack.length) {
+            for (const dn of dag.nodes.get(dStack.pop()!)!.dependents) {
+              if (!descendantsOfBackTo.has(dn)) { descendantsOfBackTo.add(dn); dStack.push(dn); }
+            }
+          }
+          for (const nodeId of ancestorsOfLoop) {
+            if (!descendantsOfBackTo.has(nodeId)) continue;
+            const n = dag.nodes.get(nodeId)!;
+            n.status = 'pending';
+            n.result = undefined;
+            n.error = undefined;
+            n.startTime = undefined;
+            n.endTime = undefined;
+            n.tokenUsage = undefined;
           }
 
           levelIndex = backToLevel;

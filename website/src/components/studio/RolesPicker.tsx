@@ -45,8 +45,11 @@ export function RolesPicker({
 
   useEffect(() => {
     if (demo) {
-      setRoles(demoRoles(lang));
-      setLoading(false);
+      setLoading(true);
+      demoRoles(lang)
+        .then((r) => setRoles(r))
+        .catch(() => setRoles([]))
+        .finally(() => setLoading(false));
       return;
     }
     setLoading(true);

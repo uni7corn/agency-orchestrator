@@ -59,6 +59,12 @@ export function RoleDetail({
   };
 
   useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
     if (role.content) return;
     const load = demo
       ? demoRoleContent(lang, role.category, role.id).then((content) => ({ ...role, content }))
@@ -82,6 +88,9 @@ export function RoleDetail({
   return (
     <div className="fixed inset-0 z-[58] flex items-stretch justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-6" onClick={onClose}>
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={role.name}
         className="flex w-full max-w-2xl flex-col overflow-hidden rounded-none border border-border/70 bg-background shadow-2xl sm:max-h-[86vh] sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >

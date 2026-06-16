@@ -1,5 +1,5 @@
 import { BarChart3, Boxes, Download, History, KeyRound, Plug, TriangleAlert, Users } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { ProvidersPanel } from "@/components/studio/ProvidersPanel";
@@ -10,12 +10,14 @@ import { RunViewer } from "@/components/studio/RunViewer";
 import { RunsPanel } from "@/components/studio/RunsPanel";
 import { StudioDemo } from "@/components/studio/StudioDemo";
 import { InstallPrompt } from "@/components/studio/InstallPrompt";
-import { UsagePanel } from "@/components/studio/UsagePanel";
 import { WorkflowsPanel } from "@/components/studio/WorkflowsPanel";
 import { useBackend } from "@/components/studio/useBackend";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { api, getActiveProvider, PROVIDER_LABELS, PROVIDERS, setActiveProvider } from "@/lib/studio";
 import { cn } from "@/lib/utils";
+
+// recharts(~390kB)只在用量 tab 用 → 懒加载，避免拖累 Studio 首屏与演示模式
+const UsagePanel = lazy(() => import("@/components/studio/UsagePanel").then((m) => ({ default: m.UsagePanel })));
 
 const KEYED = ["deepseek", "compshare", "openai", "claude"];
 
@@ -176,7 +178,9 @@ function StudioInner() {
           ) : tab === "runs" ? (
             <RunsPanel provider={provider} onRun={start} />
           ) : tab === "usage" ? (
-            <UsagePanel />
+            <Suspense fallback={<div className="py-20 text-center text-sm text-muted-foreground">…</div>}>
+              <UsagePanel />
+            </Suspense>
           ) : (
             <ProvidersPanel active={provider} onSetActive={(p) => setProvider(p)} />
           )}

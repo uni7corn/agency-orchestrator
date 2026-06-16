@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-06-17
+
+### Fixed
+- **循环回跳误伤并行旁支**：loop 重跑现在只重置「循环体」（`back_to` 到循环节点的依赖闭包），不再清空同层但不在链上的并行步骤——避免它们被重复执行、重复弹 human_input / approval（含回归测试）。
+- **条件运算符解析**：`contains` / `equals` 改为在 YAML 模板（替换变量之前）上解析；专家产出里恰好出现 "contains/equals" 不再会把分支 / 循环退出条件从错误位置切开（含回归测试）。
+
+### Performance
+- Studio 懒加载「用量」面板（recharts ~390kB）与 `experts.json`（~150kB）：不再随 Studio 首屏 / 演示模式一次性拉取，仅在用到时按需加载。
+
+### Accessibility
+- 专家详情 / 安装引导 / 专家库弹框加上 `role="dialog"` + `aria-modal` + Esc 关闭。
+
 ## [0.7.4] - 2026-06-16
 
 ### Changed
