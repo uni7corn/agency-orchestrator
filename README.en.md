@@ -37,7 +37,7 @@ Prefer not to use the command line? Run `ao web` locally and pick experts, run w
   <em>Workflows: run built-in templates with one click, or compare several</em>
 </p>
 
-> Launch: `ao web` (local — your API key stays on your machine, never uploaded). A [desktop client](./desktop) (Electron) is also available.
+> Launch: `ao web` (local — your API key stays on your machine, never uploaded). A [desktop client download](https://github.com/jnMetaCode/agency-orchestrator/releases/latest) (Electron · macOS / Windows / Linux) is also available.
 
 ---
 

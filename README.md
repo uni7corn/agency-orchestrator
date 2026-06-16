@@ -35,7 +35,7 @@
   <em>工作流：内置模板一键运行，也能对比多个模板</em>
 </p>
 
-> 启动：`ao web`（本地，密钥只存你自己机器、绝不外传）。也有 [桌面客户端](./desktop)（Electron）。
+> 启动：`ao web`（本地，密钥只存你自己机器、绝不外传）。也有 [桌面客户端下载](https://github.com/jnMetaCode/agency-orchestrator/releases/latest)（Electron · macOS / Windows / Linux）。
 > 英文界面同样完整 → 见 [English README](./README.en.md)。
 
 ---
