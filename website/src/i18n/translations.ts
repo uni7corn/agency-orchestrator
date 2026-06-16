@@ -22,6 +22,7 @@ const zh = {
     titleHighlight: "自动组队协作",
     subtitle:
       "描述需求 → AI 自动拆解任务 → 从 216 位专家中选角 → 按 DAG 并行执行 → 几分钟出一份完整方案。专家来自开源库 agency-agents，AO 负责把他们编排成一支团队。",
+    ctaDownload: "下载客户端",
     ctaPrimary: "在 GitHub 上查看",
     ctaSecondary: "看赞助商权益",
     installHint: "一行命令开始：",
@@ -494,6 +495,7 @@ const en: typeof zh = {
     titleHighlight: "team up automatically",
     subtitle:
       "Describe what you need → AI decomposes the task → picks from 184 experts → runs them in parallel as a DAG → a full plan in minutes. The experts come from the open-source agency-agents library; AO orchestrates them into a team.",
+    ctaDownload: "Download app",
     ctaPrimary: "View on GitHub",
     ctaSecondary: "Sponsor perks",
     installHint: "Start with one command:",

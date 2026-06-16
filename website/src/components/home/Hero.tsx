@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { ArrowRight, Github, Terminal } from "lucide-react";
+import { ArrowRight, Download, Github, Terminal } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,12 @@ export function Hero() {
 
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Button asChild size="lg">
+              <a href={SITE.releases} target="_blank" rel="noreferrer">
+                <Download className="size-5" />
+                {h.ctaDownload}
+              </a>
+            </Button>
+            <Button asChild size="lg" variant="outline">
               <a href={SITE.repo} target="_blank" rel="noreferrer">
                 <Github className="size-5" />
                 {h.ctaPrimary}
