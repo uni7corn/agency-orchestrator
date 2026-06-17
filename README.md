@@ -271,6 +271,8 @@ ao compose "一句话描述" --run          # 编排并立即执行
 ao team save <workflow.yaml>          # 把角色阵容存成可复用团队 (Loadout)
 ao team list / show / rm              # 管理已保存的团队
 ao run --team <名字> "新任务"          # 用已保存的团队跑新任务（锁定阵容）
+ao prompt optimize "提示词"           # AI 优化提示词（--save 存为可复用资产）
+ao prompt test / list / garden        # 测试 / 管理 / 起手模板（提示词沉淀）
 ao run <workflow.yaml> [选项]          # 执行工作流
 ao validate <workflow.yaml>           # 校验（不执行）
 ao plan <workflow.yaml>               # 查看执行计划（DAG）
@@ -324,6 +326,19 @@ ao team show 技术博客组  # 查看阵容构成
 `ao run --team` 的本质 = compose 时把可选角色**锁定**为团队那几个，所以既不会漏人、也不会幻觉出别的角色。团队存在 `~/.ao/teams/*.team.yaml`（纯 YAML，可直接拷贝分享），**命令行和网页 Studio 共用同一份**——Studio 里勾选角色后点「存为团队」，命令行立刻 `ao run --team` 可用，反之亦然。
 
 > 自带私有专家：设环境变量 `AO_AGENTS_DIR=/你的角色目录`，`run / compose / roles / web` 全部改用你自己的角色库。
+
+### 提示词优化（Prompt Lab）
+
+把「靠感觉」的提示词，变成可优化、可测试、可对比、可沉淀的资产：
+
+```bash
+ao prompt optimize "帮我写个朋友圈文案卖咖啡" --save 咖啡文案   # AI 把它改写成更有效的提示词
+ao prompt test "你是专业翻译，只输出译文" --mode system --input "good morning"  # 用样例实跑看输出
+ao prompt list / show 咖啡文案     # 已保存的提示词 + 版本历史
+ao prompt garden                  # 内置起手模板
+```
+
+`--mode system|user` 区分「角色/系统提示词」和「任务提示词」。优化只产出**更好的提示词**（不会直接去执行它）。网页 Studio 的「提示词」页还能原版 vs 优化版**并排对比 + AI 评分**。存在 `~/.ao/prompts/`（`AO_PROMPTS_DIR` 可改），命令行与 Studio 共用。
 
 ### 迭代优化（Resume）
 

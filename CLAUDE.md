@@ -13,7 +13,16 @@ ao roles                              # List all 216 available roles
 ao team save <workflow.yaml>          # Save a role line-up as a reusable team (Loadout)
 ao team list / show / rm              # Manage saved teams (stored in ~/.ao/teams)
 ao run --team <name> "task"           # Run a new task with a saved team (locked line-up)
+ao prompt optimize "<prompt>"         # AI-optimize a prompt (--mode system|user, --save)
+ao prompt test / list / show / rm / garden  # Prompt Lab: test / manage / starter templates
 ```
+
+## Prompt Lab
+
+`src/cli/prompt.ts` — optimize (system/user meta-prompt that yields a *better prompt*, not the
+answer), test (run a prompt on a sample), `scoreOutputs` (LLM judge ranks candidates). Stored as
+`~/.ao/prompts/*.prompt.json` (override with `AO_PROMPTS_DIR`), shared between the `ao prompt` CLI
+and the Studio "Prompts" tab (`/api/prompt/*` in `web/server.js`).
 
 ## Teams / Loadouts
 
