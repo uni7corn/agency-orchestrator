@@ -234,7 +234,8 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
   const [failed, setFailed] = useState(false);
   const load = () => {
     setFailed(false);
-    api.config().then(setCfg).catch(() => setFailed(true));
+    // 演示站没有引擎后端：config 拉不到时退回空配置，照样展示供应商卡片（可看、可填，只是无法实际运行 / 测试），不再弹「加载失败」
+    api.config().then(setCfg).catch(() => setCfg({ providers: {}, cli: [], defaultProvider: "" }));
   };
   useEffect(load, []);
 

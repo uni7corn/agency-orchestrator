@@ -87,7 +87,7 @@ function StudioInner() {
               Studio
             </span>
 
-            {status === "online" && (
+            {status !== "checking" && (
               <nav className="flex flex-1 gap-1 overflow-x-auto rounded-xl bg-muted/50 p-1">
                 {TABS.map((tb) => {
                   const Icon = tb.icon;
@@ -126,7 +126,6 @@ function StudioInner() {
               <select
                 value={provider}
                 onChange={(e) => setProvider(e.target.value)}
-                disabled={offline}
                 title={t.studio.shell.providerSelectTitle}
                 className="h-8 rounded-lg border border-border/70 bg-card/60 px-2 text-sm text-foreground outline-none disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -136,7 +135,7 @@ function StudioInner() {
                   </option>
                 ))}
               </select>
-              <Button size="sm" variant="outline" onClick={() => (offline ? setInstallOpen(true) : setTab("providers"))}>
+              <Button size="sm" variant="outline" onClick={() => setTab("providers")}>
                 <KeyRound className="size-4" />
                 <span className="hidden sm:inline">{t.studio.shell.keys}</span>
               </Button>
@@ -157,7 +156,10 @@ function StudioInner() {
               </Button>
             </div>
           )}
-          {offline ? (
+          {tab === "providers" ? (
+            // 供应商/API 面板在线、离线都能进、能填（演示站没有引擎也照样展示卡片，只是无法实际运行）
+            <ProvidersPanel active={provider} onSetActive={(p) => setProvider(p)} />
+          ) : offline ? (
             <>
               <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/[0.07] px-4 py-3">
                 <div className="min-w-0">
