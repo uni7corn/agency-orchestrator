@@ -2,6 +2,7 @@ import { BarChart3, Boxes, Download, History, KeyRound, Plug, TriangleAlert, Use
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import { ProviderSelect } from "@/components/studio/ProviderSelect";
 import { ProvidersPanel } from "@/components/studio/ProvidersPanel";
 import { RolesPicker } from "@/components/studio/RolesPicker";
 import { RunDock } from "@/components/studio/RunDock";
@@ -14,7 +15,7 @@ import { InstallPrompt } from "@/components/studio/InstallPrompt";
 import { WorkflowsPanel } from "@/components/studio/WorkflowsPanel";
 import { useBackend } from "@/components/studio/useBackend";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { api, getActiveProvider, PROVIDER_LABELS, PROVIDERS, setActiveProvider } from "@/lib/studio";
+import { api, getActiveProvider, setActiveProvider } from "@/lib/studio";
 import { cn } from "@/lib/utils";
 
 // recharts(~390kB)只在用量 tab 用 → 懒加载，避免拖累 Studio 首屏与演示模式
@@ -123,18 +124,7 @@ function StudioInner() {
                 <span className={cn("size-1.5 rounded-full", status === "online" ? "bg-emerald-500" : status === "offline" ? "bg-amber-500" : "bg-muted-foreground")} />
                 {status === "online" ? t.studio.shell.statusOnline : status === "offline" ? t.studio.shell.statusOffline : t.studio.shell.statusChecking}
               </span>
-              <select
-                value={provider}
-                onChange={(e) => setProvider(e.target.value)}
-                title={t.studio.shell.providerSelectTitle}
-                className="h-8 rounded-lg border border-border/70 bg-card/60 px-2 text-sm text-foreground outline-none disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {PROVIDERS.map((p) => (
-                  <option key={p} value={p}>
-                    {p === "" ? t.studio.shell.providerDefault : (PROVIDER_LABELS[p] ?? p)}
-                  </option>
-                ))}
-              </select>
+              <ProviderSelect value={provider} onChange={setProvider} />
               <Button size="sm" variant="outline" onClick={() => setTab("providers")}>
                 <KeyRound className="size-4" />
                 <span className="hidden sm:inline">{t.studio.shell.keys}</span>
