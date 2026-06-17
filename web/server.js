@@ -64,7 +64,7 @@ const CLI_PROVIDERS = ['claude-code', 'gemini-cli', 'copilot-cli', 'codex-cli', 
 // per-provider overrides the user saved in the Studio (model name, custom base_url).
 // Already YAML-safe (no undefined fields) — used for compose, run args and run-role.
 function buildLLMConfig(provider) {
-  const p = provider || process.env.AO_PROVIDER || 'deepseek';
+  const p = provider || process.env.AO_PROVIDER || 'apinebula';
   const cfg = { provider: p, max_tokens: 4096 };
   if (CLI_PROVIDERS.includes(p)) return cfg; // local CLI: no model/key/base needed
   let saved = {};
@@ -741,7 +741,7 @@ app.get('/api/config', (_req, res) => {
     model: saved.ollama?.model || '',
     configured: !!saved.ollama?.model,
   };
-  res.json({ providers, cli: CLI_PROVIDERS, defaultProvider: process.env.AO_PROVIDER || 'deepseek' });
+  res.json({ providers, cli: CLI_PROVIDERS, defaultProvider: process.env.AO_PROVIDER || 'apinebula' });
 });
 
 app.post('/api/config', (req, res) => {

@@ -110,8 +110,9 @@ export interface ConfigResponse {
 
 const ACTIVE_KEY = "ao-active-provider";
 export function getActiveProvider(): string {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(ACTIVE_KEY) ?? "";
+  if (typeof window === "undefined") return DEFAULT_PROVIDER;
+  // 空串（老用户存过的「默认」）也归一到旗舰默认
+  return window.localStorage.getItem(ACTIVE_KEY) || DEFAULT_PROVIDER;
 }
 export function setActiveProvider(p: string) {
   window.localStorage.setItem(ACTIVE_KEY, p);
@@ -245,11 +246,13 @@ export function runRole(
   return streamSse("/run-role", body, onEvent, signal);
 }
 
-export const PROVIDERS = ["", "apinebula", "deepseek", "compshare", "openai", "claude", "claude-code", "gemini-cli", "openclaw-cli", "ollama"];
+// 默认 provider：旗舰赞助商 APINEBULA（取代原来的 DeepSeek 默认）
+export const DEFAULT_PROVIDER = "apinebula";
 
-// 仅品牌名（语言无关）；"" 默认项与本地标注在下拉框里用 t 渲染，避免英文站露中文。
+export const PROVIDERS = ["apinebula", "deepseek", "compshare", "openai", "claude", "claude-code", "gemini-cli", "openclaw-cli", "ollama"];
+
+// 仅品牌名（语言无关）。
 export const PROVIDER_LABELS: Record<string, string> = {
-  "": "DeepSeek",
   apinebula: "APINEBULA",
   deepseek: "DeepSeek",
   compshare: "CompShare",

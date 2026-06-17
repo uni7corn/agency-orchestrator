@@ -15,7 +15,7 @@ import { InstallPrompt } from "@/components/studio/InstallPrompt";
 import { WorkflowsPanel } from "@/components/studio/WorkflowsPanel";
 import { useBackend } from "@/components/studio/useBackend";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { api, getActiveProvider, setActiveProvider } from "@/lib/studio";
+import { api, DEFAULT_PROVIDER, getActiveProvider, setActiveProvider } from "@/lib/studio";
 import { cn } from "@/lib/utils";
 
 // recharts(~390kB)只在用量 tab 用 → 懒加载，避免拖累 Studio 首屏与演示模式
@@ -75,7 +75,7 @@ function StudioInner() {
     [refreshConfig],
   );
 
-  const effProvider = provider || "deepseek";
+  const effProvider = provider || DEFAULT_PROVIDER;
   const needKeyWarning = status === "online" && KEYED.includes(effProvider) && keyedHas[effProvider] === false;
 
   return (

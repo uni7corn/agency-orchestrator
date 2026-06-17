@@ -2,7 +2,7 @@ import { Check, Cloud, Eye, EyeOff, Loader2, MonitorCog, Plug, Sparkles, Termina
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { api, PROVIDER_LABELS, type ConfigResponse } from "@/lib/studio";
+import { api, DEFAULT_PROVIDER, PROVIDER_LABELS, type ConfigResponse } from "@/lib/studio";
 import { cn } from "@/lib/utils";
 
 type ApiMeta = { id: string; name: string; hint: string; flagship?: boolean };
@@ -239,7 +239,7 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
   };
   useEffect(load, []);
 
-  const eff = active || "deepseek";
+  const eff = active || DEFAULT_PROVIDER;
 
   return (
     <div className="space-y-6">
