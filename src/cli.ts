@@ -560,7 +560,9 @@ async function runWithTeam(teamRef: string): Promise<void> {
     console.log('─'.repeat(50));
     console.log(`  ${t('compose.auto_running')}\n`);
     const result = await run(resolve(savedPath), {}, {
-      quiet: false,
+      quiet: args.includes('--quiet') || args.includes('-q'),
+      watch: args.includes('--watch'),
+      outputDir: getArgValue('--output') || 'ao-output',
       llmOverride: {
         provider,
         model: model || undefined,
