@@ -529,6 +529,7 @@ async function handleInit(): Promise<void> {
         p === 'ollama' ? 'OLLAMA_BASE_URL' :
         p === 'deepseek' ? 'DEEPSEEK_BASE_URL' :
         p === 'compshare' ? 'COMPSHARE_BASE_URL' :
+        p === 'apinebula' ? 'APINEBULA_BASE_URL' :
         'OPENAI_BASE_URL';
       updates[urlVar] = cfgBaseUrl;
     }
@@ -542,6 +543,7 @@ async function handleInit(): Promise<void> {
         p === 'deepseek' ? 'DEEPSEEK_API_KEY' :
         p === 'anthropic' || p === 'claude' ? 'ANTHROPIC_API_KEY' :
         p === 'compshare' ? 'COMPSHARE_API_KEY' :
+        p === 'apinebula' ? 'APINEBULA_API_KEY' :
         'OPENAI_API_KEY';
       updates[keyVar] = cfgApiKey;
     }

@@ -27,6 +27,8 @@ export interface Sponsor {
   tagline: LocalizedText;
   description: LocalizedText;
   perk?: LocalizedText;
+  /** 旗舰大屏卡片的 CTA 按钮文案，缺省时退回 tagline */
+  perkCta?: LocalizedText;
   couponCode?: string;
   since?: string;
   featured?: boolean;
@@ -56,6 +58,10 @@ export const sponsors: Sponsor[] = [
     perk: {
       zh: "注册并在充值时填写优惠码 agent，可享九折优惠",
       en: "Use coupon code agent at recharge for a 10% discount",
+    },
+    perkCta: {
+      zh: "使用专属优惠访问",
+      en: "Get the exclusive offer",
     },
     couponCode: "agent",
   },

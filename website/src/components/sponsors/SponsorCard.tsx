@@ -7,43 +7,39 @@ export function SponsorCard({ sponsor }: { sponsor: Sponsor }) {
   const { lang } = useLanguage();
   const s = sponsor;
 
-  // 旗舰 + 有 banner：全宽大屏卡片，图片在上、文字在下
+  // 旗舰 + 有 banner：全宽大屏卡片，图片在上、文字在下（参考 CC Switch 旗舰位）
   if (s.banner) {
     return (
-      <a
-        href={s.url}
-        target="_blank"
-        rel="noreferrer"
-        className="group relative flex flex-col overflow-hidden rounded-2xl border border-gold/40 bg-card/60 transition-all hover:-translate-y-0.5 hover:border-gold/70 md:col-span-2 lg:col-span-3"
-      >
-        <ArrowUpRight className="absolute right-4 top-4 z-10 size-4 text-white/80 transition-colors group-hover:text-white" />
+      <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-gold/40 bg-card/60 transition-all hover:border-gold/70 md:col-span-2 lg:col-span-3">
+        <a href={s.url} target="_blank" rel="noreferrer" className="block">
+          <img src={s.banner} alt={s.name} className="aspect-[1269/337] w-full object-cover" />
+        </a>
 
-        <img
-          src={s.banner}
-          alt={s.name}
-          className="aspect-[1269/337] w-full object-cover"
-        />
+        <div className="flex flex-col gap-3 p-6 sm:p-8">
+          <h3 className="text-2xl font-bold">{s.name}</h3>
+          <p className="text-sm font-semibold text-gold">{s.tagline[lang]}</p>
 
-        <div className="flex flex-col gap-3 p-6">
-          <div className="flex items-center gap-3">
-            <h3 className="text-xl font-bold">{s.name}</h3>
-            <span className="rounded-full bg-gold/10 px-2.5 py-0.5 text-xs font-semibold text-gold">
-              {s.tagline[lang]}
-            </span>
-          </div>
+          <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">{s.description[lang]}</p>
 
-          <p className="text-sm leading-relaxed text-muted-foreground">{s.description[lang]}</p>
-
-          {s.perk && (
-            <div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-4">
+            {s.perk && (
               <span className="inline-flex items-center gap-1.5 rounded-lg bg-gold/10 px-2.5 py-1.5 text-xs font-medium text-gold">
                 <Sparkles className="size-3.5" />
                 {s.perk[lang]}
               </span>
-            </div>
-          )}
+            )}
+            <a
+              href={s.url}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-xl bg-gold px-5 py-2.5 text-sm font-semibold text-gold-foreground transition-opacity hover:opacity-90"
+            >
+              {s.perkCta?.[lang] ?? s.tagline[lang]}
+              <ArrowUpRight className="size-4" />
+            </a>
+          </div>
         </div>
-      </a>
+      </div>
     );
   }
 

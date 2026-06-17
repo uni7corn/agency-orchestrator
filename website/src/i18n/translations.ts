@@ -142,6 +142,9 @@ const zh = {
       cliRequirement: "需已安装并登录",
       compshareName: "优云智算 CompShare · 赞助商",
       compshareHint: "OpenAI 兼容 · 模型如 deepseek-ai/DeepSeek-R1 · key 在 console.compshare.cn",
+      apinebulaName: "APINEBULA",
+      apinebulaHint: "OpenAI 兼容 · 聚合 Claude / GPT / Gemini 满血直连 · 模型如 gpt-5.5 · key 在 apinebula.com",
+      flagshipTag: "旗舰赞助商",
     },
     run: {
       running: "运行中",
@@ -591,6 +594,9 @@ const en: typeof zh = {
       cliRequirement: "Must be installed and logged in",
       compshareName: "CompShare · Sponsor",
       compshareHint: "OpenAI-compatible · model e.g. deepseek-ai/DeepSeek-R1 · get key at console.compshare.cn",
+      apinebulaName: "APINEBULA",
+      apinebulaHint: "OpenAI-compatible · aggregates full-power Claude / GPT / Gemini · model e.g. gpt-5.5 · get key at apinebula.com",
+      flagshipTag: "Flagship sponsor",
     },
     run: {
       running: "Running",

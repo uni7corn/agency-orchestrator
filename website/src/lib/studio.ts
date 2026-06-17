@@ -245,11 +245,12 @@ export function runRole(
   return streamSse("/run-role", body, onEvent, signal);
 }
 
-export const PROVIDERS = ["", "deepseek", "compshare", "openai", "claude", "claude-code", "gemini-cli", "openclaw-cli", "ollama"];
+export const PROVIDERS = ["", "apinebula", "deepseek", "compshare", "openai", "claude", "claude-code", "gemini-cli", "openclaw-cli", "ollama"];
 
 // 仅品牌名（语言无关）；"" 默认项与本地标注在下拉框里用 t 渲染，避免英文站露中文。
 export const PROVIDER_LABELS: Record<string, string> = {
   "": "DeepSeek",
+  apinebula: "APINEBULA",
   deepseek: "DeepSeek",
   compshare: "CompShare",
   openai: "OpenAI",

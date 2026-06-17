@@ -52,6 +52,13 @@ export function createConnector(config: LLMConfig): LLMConnector {
         apiKey: config.api_key || process.env.COMPSHARE_API_KEY,
         baseUrl: config.base_url || process.env.COMPSHARE_BASE_URL || 'https://api.modelverse.cn/v1',
       });
+    case 'apinebula':
+      // APINEBULA（旗舰赞助商）—— 银河录像局旗下 AI 聚合平台，OpenAI 兼容，base_url 写死
+      // 聚合 Claude / GPT / Gemini 满血直连，用户只需填 key + 模型名（如 gpt-5.5；key 在 apinebula.com 获取）
+      return new OpenAICompatibleConnector({
+        apiKey: config.api_key || process.env.APINEBULA_API_KEY,
+        baseUrl: config.base_url || process.env.APINEBULA_BASE_URL || 'https://apinebula.com/v1',
+      });
     default:
       // 未知 provider：如果提供了 base_url，当作 OpenAI 兼容 API 处理
       if (config.base_url) {

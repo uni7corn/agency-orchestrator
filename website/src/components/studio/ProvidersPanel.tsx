@@ -1,11 +1,15 @@
-import { Check, Cloud, Eye, EyeOff, Loader2, MonitorCog, Plug, Terminal, XCircle } from "lucide-react";
+import { Check, Cloud, Eye, EyeOff, Loader2, MonitorCog, Plug, Sparkles, Terminal, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { api, PROVIDER_LABELS, type ConfigResponse } from "@/lib/studio";
 import { cn } from "@/lib/utils";
 
-const API_META = [
+type ApiMeta = { id: string; name: string; hint: string; flagship?: boolean };
+
+const API_META: ApiMeta[] = [
+  // 旗舰赞助商 APINEBULA —— 置顶 + 高亮（大屏特有）
+  { id: "apinebula", name: "APINEBULA", hint: "apinebula.com", flagship: true },
   { id: "deepseek", name: "DeepSeek", hint: "platform.deepseek.com" },
   { id: "compshare", name: "CompShare", hint: "console.compshare.cn" },
   { id: "openai", name: "OpenAI", hint: "gpt-4o {etc} · platform.openai.com" },
@@ -112,15 +116,33 @@ function ApiCard({
     }
   };
 
-  // 赞助商 CompShare 的名称/说明走 i18n（英文站不露中文）；其余 provider 是品牌名+URL，语言无关
-  const displayName = meta.id === "compshare" ? t.studio.providers.compshareName : meta.name;
-  const displayHint = meta.id === "compshare" ? t.studio.providers.compshareHint : meta.hint.replace("{etc}", t.studio.providers.etc);
+  // 赞助商 CompShare / APINEBULA 的名称/说明走 i18n（英文站不露中文）；其余 provider 是品牌名+URL，语言无关
+  const displayName = meta.id === "compshare" ? t.studio.providers.compshareName
+    : meta.id === "apinebula" ? t.studio.providers.apinebulaName
+    : meta.name;
+  const displayHint = meta.id === "compshare" ? t.studio.providers.compshareHint
+    : meta.id === "apinebula" ? t.studio.providers.apinebulaHint
+    : meta.hint.replace("{etc}", t.studio.providers.etc);
 
   return (
-    <div className={cn("rounded-2xl border bg-card/60 p-5", active ? "border-primary/60" : "border-border/70")}>
+    <div
+      className={cn(
+        "rounded-2xl border bg-card/60 p-5",
+        meta.flagship
+          ? "border-gold/60 bg-gold/[0.04] ring-1 ring-gold/30"
+          : active
+            ? "border-primary/60"
+            : "border-border/70",
+      )}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="font-semibold">{displayName}</span>
+          {meta.flagship && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-gold/15 px-2 py-0.5 text-[11px] font-semibold text-gold">
+              <Sparkles className="size-3" /> {t.studio.providers.flagshipTag}
+            </span>
+          )}
         </div>
         <ActiveButton on={active} onClick={onSetActive} />
       </div>
