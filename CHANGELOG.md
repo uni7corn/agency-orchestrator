@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **桌面端连不上本地 CLI（claude/codex/gemini）**（#41）：从 Finder/Dock 启动的 GUI 应用只继承 launchd 的精简 PATH（`/usr/bin:/bin:...`），找不到装在 homebrew / `~/.local/bin` / npm-global 里的 CLI provider 二进制，表现为「找不到 claude / 连不上本地 cli」。桌面壳现在在拉起引擎前重建可用 PATH（登录 shell 的 PATH + 常见 bin 目录），子进程继承之；终端里 `ao run` 不受影响。
+
 ## [0.7.5] - 2026-06-17
 
 ### Fixed
