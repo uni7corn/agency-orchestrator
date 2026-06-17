@@ -3,14 +3,56 @@
 // Node (ELECTRON_RUN_AS_NODE), then opens a native window onto the local UI.
 // No system Node install required.
 const { app, BrowserWindow, shell } = require("electron");
-const { spawn } = require("node:child_process");
+const { spawn, execFileSync } = require("node:child_process");
 const path = require("node:path");
+const os = require("node:os");
 const http = require("node:http");
 
 const ROOT = app.isPackaged ? path.join(process.resourcesPath, "app") : path.resolve(__dirname, "..");
 const PORT = process.env.AO_DESKTOP_PORT || "8799";
 const BASE = `http://127.0.0.1:${PORT}/`;
 let backend = null;
+
+// GUI apps launched from Finder/Dock inherit the minimal launchd PATH
+// (/usr/bin:/bin:/usr/sbin:/sbin), NOT the user's shell PATH. So CLI providers
+// installed in homebrew / ~/.local/bin / npm-global (claude, codex, gemini…) are
+// invisible to the spawned engine → "找不到 claude / 连不上本地 CLI" (issue #41).
+// Rebuild a usable PATH: the login shell's PATH (best effort) + common bin dirs.
+function resolvedPath() {
+  const parts = [];
+  if (process.platform !== "win32") {
+    // Ask the login shell for its PATH (covers nvm/asdf/custom installs).
+    try {
+      const shellBin = process.env.SHELL || "/bin/zsh";
+      const out = execFileSync(shellBin, ["-lic", "printf %s \"$PATH\""], {
+        timeout: 4000,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      if (out) parts.push(out);
+    } catch {
+      /* shell probe failed — fall back to curated dirs below */
+    }
+    const home = os.homedir();
+    parts.push(
+      "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin",
+      path.join(home, ".local/bin"),
+      path.join(home, ".npm-global/bin"),
+      path.join(home, ".bun/bin"),
+      path.join(home, ".deno/bin"),
+      path.join(home, ".cargo/bin"),
+    );
+  }
+  if (process.env.PATH) parts.push(process.env.PATH);
+  // de-dupe, preserve order, drop empties
+  const seen = new Set();
+  const sep = process.platform === "win32" ? ";" : ":";
+  return parts
+    .join(sep)
+    .split(sep)
+    .filter((p) => p && !seen.has(p) && seen.add(p))
+    .join(sep);
+}
 
 function startBackend() {
   const serverPath = path.join(ROOT, "web", "server.js");
@@ -21,6 +63,7 @@ function startBackend() {
       ELECTRON_RUN_AS_NODE: "1", // run the backend (and its engine children) as plain Node
       AO_NODE: process.execPath, // engine binary the server should spawn
       AO_DATA_DIR: app.getPath("userData"), // writable dir for outputs / keys (bundle is read-only)
+      PATH: resolvedPath(), // so CLI providers (claude/codex/gemini) are found (issue #41)
       PORT,
       HOST: "127.0.0.1",
     },
