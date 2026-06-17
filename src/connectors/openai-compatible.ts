@@ -19,6 +19,8 @@ export class OpenAICompatibleConnector implements LLMConnector {
   private apiKey: string;
   /** 只读暴露给外部 debug / 测试用，运行时不可变 */
   readonly baseUrl: string;
+  /** Azure OpenAI 端点：用 `api-key` header + `max_completion_tokens`（与原生 OpenAI 不同）。issue #38 */
+  readonly isAzure: boolean;
 
   constructor(options: { apiKey?: string; baseUrl?: string } = {}) {
     this.apiKey = options.apiKey || process.env.OPENAI_API_KEY || '';
@@ -26,10 +28,20 @@ export class OpenAICompatibleConnector implements LLMConnector {
 
     // 去掉末尾的 /
     this.baseUrl = this.baseUrl.replace(/\/+$/, '');
+    this.isAzure = /\.azure\.com|azure/i.test(this.baseUrl);
 
     if (!this.apiKey) {
       throw new Error('缺少 API Key，请通过参数或环境变量传入');
     }
+  }
+
+  /**
+   * token 上限参数名。Azure 的 gpt 模型（及 OpenAI o系列推理模型）只认 `max_completion_tokens`，
+   * 老式 `max_tokens` 会被拒。Azure 自动切换；其它端点可用 AO_OPENAI_TOKENS_PARAM 显式覆盖。issue #38
+   */
+  private get tokenParam(): 'max_tokens' | 'max_completion_tokens' {
+    if (process.env.AO_OPENAI_TOKENS_PARAM === 'max_completion_tokens') return 'max_completion_tokens';
+    return this.isAzure ? 'max_completion_tokens' : 'max_tokens';
   }
 
   async chat(systemPrompt: string, userMessage: string, config: LLMConfig): Promise<LLMResult> {
@@ -60,11 +72,13 @@ export class OpenAICompatibleConnector implements LLMConnector {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${this.apiKey}`,
+            // Azure 用 api-key header 鉴权（Bearer 仅 AAD token 时有效）
+            ...(this.isAzure ? { 'api-key': this.apiKey } : {}),
           },
           signal: controller.signal,
           body: JSON.stringify({
             model: config.model!,
-            max_tokens: config.max_tokens || 4096,
+            [this.tokenParam]: config.max_tokens || 4096,
             stream: true,
             messages,
           }),

@@ -262,6 +262,8 @@ ao compose "description" --run       # Generate AND execute in one command
 ao team save <workflow.yaml>         # Save a role line-up as a reusable team (Loadout)
 ao team list / show / rm             # Manage saved teams
 ao run --team <name> "new task"      # Run a new task with a saved team (locked line-up)
+ao prompt optimize "<prompt>"        # AI-optimize a prompt (--save to keep it reusable)
+ao prompt test / list / garden       # Test / manage / starter templates (prompt library)
 ao run <workflow.yaml> [options]      # Execute workflow
 ao validate <workflow.yaml>          # Validate without running
 ao plan <workflow.yaml>              # Show execution plan (DAG)
@@ -314,6 +316,19 @@ ao team show blog-crew # Inspect the line-up
 `ao run --team` simply **locks** the compose role catalog down to the team's roles — so nobody is dropped and no role is hallucinated. Teams live in `~/.ao/teams/*.team.yaml` (plain YAML, copy-to-share) and are **shared between the CLI and the web Studio** — pick roles in Studio, hit "Save as team", and `ao run --team` can use it immediately, and vice versa.
 
 > Bring your own experts: set `AO_AGENTS_DIR=/your/roles/dir` and `run / compose / roles / web` all switch to your own role library.
+
+### Prompt Lab
+
+Turn gut-feel prompts into assets you can optimize, test, compare, and save:
+
+```bash
+ao prompt optimize "write a tweet selling coffee" --save coffee-copy   # AI rewrites it into a sharper prompt
+ao prompt test "You are a translator, output only the translation" --mode system --input "good morning"
+ao prompt list / show coffee-copy   # saved prompts + version history
+ao prompt garden                    # built-in starter templates
+```
+
+`--mode system|user` distinguishes role/system prompts from task prompts. Optimize only ever produces a **better prompt** (it never executes the prompt). The Studio "Prompts" tab adds side-by-side original-vs-optimized comparison **with AI scoring**. Stored in `~/.ao/prompts/` (`AO_PROMPTS_DIR` to override), shared between CLI and Studio.
 
 ### Resume & Iterate
 

@@ -201,6 +201,8 @@ const dict: Dict = {
     team save <workflow.yaml>         把角色阵容存成可复用团队 (Loadout)
     team list / show / rm             管理已保存的团队
     run --team <名字> "任务"           用已保存的团队跑新任务（锁定阵容）
+    prompt optimize "提示词"          AI 优化提示词（--mode system|user，--save 存下来）
+    prompt test / list / show / garden  测试 / 管理 / 起手模板（提示词沉淀）
     serve                             启动 MCP Server（供 Claude Code / Cursor 调用）
     web                               启动可视化 Web Studio（浏览器里勾角色组队、跑工作流）
     run <workflow.yaml>               执行工作流
@@ -262,6 +264,8 @@ const dict: Dict = {
     team save <workflow.yaml>         Save a role line-up as a reusable team (Loadout)
     team list / show / rm             Manage saved teams
     run --team <name> "task"          Run a new task with a saved team (locked line-up)
+    prompt optimize "<prompt>"        AI-optimize a prompt (--mode system|user, --save to keep)
+    prompt test / list / show / garden  Test / manage / starter templates (prompt library)
     serve                             Start MCP server (for Claude Code / Cursor)
     web                               Launch the visual Web Studio (pick roles & run in the browser)
     run <workflow.yaml>               Execute a workflow
