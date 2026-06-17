@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### Added
+- **Prompt Lab —— 提示词优化 / 测试 / 对比 / 沉淀**（参考 prompt-optimizer）：把「靠感觉」的提示词变成可迭代资产。
+  - **优化**：输入原始 prompt → LLM 一键改写（system / user 两种模式；meta-prompt 明确「产出仍是提示词，不是去执行它」）；原版 vs 优化版并排对比。
+  - **测试 / 对比**：用样例输入实跑两版，看真实输出；可调 LLM 裁判给多个输出**打分排序**（多结果评估）。
+  - **沉淀**：保存 + 版本历史 + 收藏；内置起手模板 Prompt Garden。
+  - 三端：`ao prompt optimize/test/list/show/rm/garden` + Web Studio「提示词」页 + 后端 `/api/prompt/*`；存 `~/.ao/prompts`（`AO_PROMPTS_DIR` 可改），CLI 与 Studio 共用。
+
 ## [0.7.5] - 2026-06-17
 
 ### Fixed

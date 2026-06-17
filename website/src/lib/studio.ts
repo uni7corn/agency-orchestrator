@@ -63,6 +63,35 @@ export interface ComposeResult {
   warnings?: string[];
 }
 
+// ── Prompt Lab ──
+export type PromptMode = "system" | "user";
+export interface PromptVersion {
+  content: string;
+  note?: string;
+  created?: string;
+  source?: "original" | "optimize" | "manual" | "garden";
+}
+export interface PromptRecord {
+  kind: "prompt";
+  name: string;
+  mode: PromptMode;
+  favorite?: boolean;
+  versions: PromptVersion[];
+  created?: string;
+}
+export interface GardenSeed {
+  id: string;
+  name: string;
+  mode: PromptMode;
+  lang: string;
+  tags: string[];
+  content: string;
+}
+export interface ScoreResult {
+  ranking: { label: string; score: number; reason: string }[];
+  best: string | null;
+}
+
 export type SseHandler = (event: string, data: any) => void;
 
 const API = "/api";
@@ -87,6 +116,16 @@ async function postJSON<T>(path: string, body: unknown): Promise<T> {
     } catch {
       /* ignore */
     }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function delJSON<T>(path: string): Promise<T> {
+  const res = await fetch(`${API}${path}`, { method: "DELETE" });
+  if (!res.ok) {
+    let msg = `${res.status}`;
+    try { const j = await res.json(); msg = j.error || msg; } catch { /* ignore */ }
     throw new Error(msg);
   }
   return res.json();
@@ -169,6 +208,18 @@ export const api = {
   // 把人工输入写回正在等待的运行（human_input / approval 节点暂停时）
   runInput: (runId: string, text: string) =>
     postJSON<{ ok: boolean }>("/run-input", { runId, text }),
+  // ── Prompt Lab ──
+  optimizePrompt: (body: { rawPrompt: string; mode: PromptMode; provider?: string; lang?: string }) =>
+    postJSON<{ optimized: string }>("/prompt/optimize", body),
+  testPrompt: (body: { prompt: string; mode: PromptMode; testInput: string; provider?: string }) =>
+    postJSON<{ output: string }>("/prompt/test", body),
+  scorePrompts: (body: { testInput: string; candidates: { label: string; output: string }[]; provider?: string; lang?: string }) =>
+    postJSON<ScoreResult>("/prompt/score", body),
+  prompts: () => getJSON<{ prompts: PromptRecord[] }>("/prompts").then((r) => r.prompts),
+  savePrompt: (body: { name: string; mode: PromptMode; versions: PromptVersion[]; favorite?: boolean }) =>
+    postJSON<{ ok: boolean; slug: string }>("/prompts", body),
+  deletePrompt: (slug: string) => delJSON<{ ok: boolean }>(`/prompts/${encodeURIComponent(slug)}`),
+  promptGarden: () => getJSON<{ seeds: GardenSeed[] }>("/prompt/garden").then((r) => r.seeds),
 };
 
 /** Parse a Server-Sent-Events stream coming from a POST response body. */
