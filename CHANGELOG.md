@@ -14,6 +14,7 @@
 - **`ao prompt` 文档补齐**：Prompt Lab 合入后 `ao prompt` 一直没进 `ao --help` / README / CLAUDE.md，用户无从发现；现已补上（中英）。
 
 ### Added
+- **顶部导航新增「提示词优化」入口**(挨着「专家库」、在「文档」左边)→ 独立 `/prompt` 页,直接用提示词优化(公开站走 CF Function 免费额度)。撤销上一版把 Studio 内 tab 挪位的改动(那不是诉求)。
 - **公开站提示词优化免费可用(Cloudflare)**：新增 CF Pages Functions(`/api/prompt/optimize|test`)把提示词优化/测试代理到 Agnes,**key 作 CF 机密、不进前端/git**;静态演示站的「提示词」页因此可真实使用(单次 LLM 调用),完整工作流仍需本地。「提示词」tab 移到「角色组队」旁边方便取用。配置见 `website/functions/README.md`。
 - **新增 Agnes AI provider**：OpenAI 兼容(`apihub.agnes-ai.com/v1`,模型 `agnes-2.0-flash` 等)。`--provider agnes` 即可用,key 走 `AGNES_API_KEY` 环境变量 / Studio 配置(**不在仓库或前端写死**)。Studio 供应商面板、`ao init --provider agnes` 均已接入。
 - **Skills(给步骤挂方法论)**：工作流步骤可加 `skill: "<名字>"`(或 `skills: [..]`)，把「怎么做」的方法论(流程剧本)注入该步的 system prompt——角色决定谁做、skill 决定怎么做。内容直接用开源 **superpowers-zh**(MIT,20 个,已作为依赖,零配置);`AO_SKILLS_DIR` 可换成自己的。`ao skills [名字]` 列出 / 查看;缺失的 skill 跳过不报错。

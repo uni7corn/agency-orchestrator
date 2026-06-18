@@ -29,8 +29,8 @@ type Tab = "roles" | "workflows" | "prompt" | "runs" | "usage" | "providers";
 
 const TAB_META: { id: Tab; icon: typeof Users }[] = [
   { id: "roles", icon: Users },
-  { id: "prompt", icon: Wand2 },     // 紧挨「角色组队」，方便用户随手优化提示词
   { id: "workflows", icon: Boxes },
+  { id: "prompt", icon: Wand2 },
   { id: "runs", icon: History },
   { id: "usage", icon: BarChart3 },
   { id: "providers", icon: Plug },
