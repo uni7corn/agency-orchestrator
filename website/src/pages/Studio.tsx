@@ -1,10 +1,9 @@
-import { BarChart3, Boxes, Download, History, KeyRound, Plug, TriangleAlert, Users, Wand2 } from "lucide-react";
+import { BarChart3, Boxes, Download, History, KeyRound, Plug, TriangleAlert, Users } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { ProviderSelect } from "@/components/studio/ProviderSelect";
 import { ProvidersPanel } from "@/components/studio/ProvidersPanel";
-import { PromptLab } from "@/components/studio/PromptLab";
 import { RolesPicker } from "@/components/studio/RolesPicker";
 import { RunDock } from "@/components/studio/RunDock";
 import { RunProvider, useRunManager } from "@/components/studio/RunManager";
@@ -25,12 +24,12 @@ const UsagePanel = lazy(() => import("@/components/studio/UsagePanel").then((m) 
 // 不会弹「需要配置 key」提示，直接运行才报认证错（commit 61e84a6 改默认后遗漏）。
 const KEYED = ["apinebula", "deepseek", "compshare", "agnes", "openai", "claude"];
 
-type Tab = "roles" | "workflows" | "prompt" | "runs" | "usage" | "providers";
+// 提示词优化已在顶部主导航单独成页(/prompt)，Studio 内不再重复一个 tab。
+type Tab = "roles" | "workflows" | "runs" | "usage" | "providers";
 
 const TAB_META: { id: Tab; icon: typeof Users }[] = [
   { id: "roles", icon: Users },
   { id: "workflows", icon: Boxes },
-  { id: "prompt", icon: Wand2 },
   { id: "runs", icon: History },
   { id: "usage", icon: BarChart3 },
   { id: "providers", icon: Plug },
@@ -168,8 +167,6 @@ function StudioInner() {
               {/* 演示模式也按 tab 显示真实内容（可浏览，只是不能真跑）；运行类操作引导安装 */}
               {tab === "workflows" ? (
                 <WorkflowsPanel provider={provider} onRun={start} demo onInstallPrompt={() => setInstallOpen(true)} />
-              ) : tab === "prompt" ? (
-                <PromptLab provider={provider} demo onInstallPrompt={() => setInstallOpen(true)} />
               ) : tab === "runs" ? (
                 <p className="mx-auto max-w-md py-16 text-center text-sm text-muted-foreground">
                   {lang === "en"
@@ -193,8 +190,6 @@ function StudioInner() {
             <RolesPicker provider={provider} onRun={start} onGoToWorkflows={() => setTab("workflows")} />
           ) : tab === "workflows" ? (
             <WorkflowsPanel provider={provider} onRun={start} />
-          ) : tab === "prompt" ? (
-            <PromptLab provider={provider} />
           ) : tab === "runs" ? (
             <RunsPanel provider={provider} onRun={start} />
           ) : tab === "usage" ? (
