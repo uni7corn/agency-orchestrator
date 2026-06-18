@@ -330,6 +330,9 @@ app.post('/api/run', (req, res) => {
   res.flushHeaders?.();
 
   const send = (type, data) => {
+    // 客户端断开后 SIGTERM 子进程不是瞬时的，期间到达的 stdout 仍会调到这里；
+    // 向已结束的响应 write 会抛 ERR_STREAM_WRITE_AFTER_END，拖垮单进程服务。
+    if (res.writableEnded) return;
     res.write(`event: ${type}\n`);
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
@@ -433,7 +436,8 @@ app.post('/api/run', (req, res) => {
   const child = spawn(NODE_BIN, args, {
     cwd: DATA_DIR,
     // AO_WEB_INPUT=1 → 引擎遇到 human_input/approval 会发机器标记而非在终端等输入
-    env: { ...process.env, FORCE_COLOR: '0', AO_WEB_INPUT: '1' },
+    // AO_NO_AT_FILE=1 → 关闭 -i k=@file 文件展开，防止网页请求读取本机任意文件（如 API key）
+    env: { ...process.env, FORCE_COLOR: '0', AO_WEB_INPUT: '1', AO_NO_AT_FILE: '1' },
   });
   activeRuns.set(runId, child);
 
@@ -578,7 +582,7 @@ app.post('/api/run-role', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
 
-  const send = (type, data) => { res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`); };
+  const send = (type, data) => { if (res.writableEnded) return; res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`); };
 
   // Don't pass --provider here: the temp workflow already bakes a full llm block
   // (provider + model). A bare --provider override would drop the model and the
@@ -611,7 +615,7 @@ app.post('/api/run-role', (req, res) => {
   }
 
   console.log('[run-role]', role, task.slice(0, 60));
-  const child = spawn(NODE_BIN, args, { cwd: DATA_DIR, env: { ...process.env, FORCE_COLOR: '0' } });
+  const child = spawn(NODE_BIN, args, { cwd: DATA_DIR, env: { ...process.env, FORCE_COLOR: '0', AO_NO_AT_FILE: '1' } });
 
   child.stdout.on('data', chunk => {
     const text = chunk.toString();

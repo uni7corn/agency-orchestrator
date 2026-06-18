@@ -10,6 +10,9 @@ export class ClaudeConnector implements LLMConnector {
   constructor(apiKey?: string) {
     this.client = new Anthropic({
       apiKey: apiKey || process.env.ANTHROPIC_API_KEY,
+      // SDK 默认 maxRetries=2，会在 executor 的重试之外再静默重试，叠加成最多 ~18 次且不可见。
+      // 重试/退避统一由 executor 负责，这里关掉 SDK 自带重试。
+      maxRetries: 0,
     });
 
     if (!this.client.apiKey) {
@@ -22,14 +25,20 @@ export class ClaudeConnector implements LLMConnector {
   }
 
   async chat(systemPrompt: string, userMessage: string, config: LLMConfig): Promise<LLMResult> {
-    const response = await this.client.messages.create({
-      model: config.model!,
-      max_tokens: config.max_tokens || 4096,
-      system: systemPrompt,
-      messages: [
-        { role: 'user', content: userMessage },
-      ],
-    });
+    // executor 传入的 config.timeout 是 ms（每次重试会递增）。SDK 默认仅 10min，会无视该配置；
+    // 这里把它作为单请求 timeout 传给 SDK。timeout=0/未设（不限时）→ 不传，退回 SDK 默认。
+    const requestTimeout = config.timeout && config.timeout > 0 ? config.timeout : undefined;
+    const response = await this.client.messages.create(
+      {
+        model: config.model!,
+        max_tokens: config.max_tokens || 4096,
+        system: systemPrompt,
+        messages: [
+          { role: 'user', content: userMessage },
+        ],
+      },
+      requestTimeout !== undefined ? { timeout: requestTimeout } : undefined,
+    );
 
     const content = response.content
       .filter(block => block.type === 'text')

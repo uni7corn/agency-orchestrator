@@ -48,6 +48,7 @@ export class OpenAICompatibleConnector implements LLMConnector {
     const maxContinuations = 3;  // 最多续写 3 次
     let fullContent = '';
 
+    try {
     for (let continuation = 0; continuation <= maxContinuations; continuation++) {
       // 构建消息：首次用原始 prompt，续写时追加已有内容让模型接着写
       const messages: Array<{role: string; content: string}> = [
@@ -125,6 +126,18 @@ export class OpenAICompatibleConnector implements LLMConnector {
         continue;
       }
       break;
+    }
+    } catch (err) {
+      // 续写循环中途若遇到非流式错误（如某轮 fetch 失败 / 503），前面已累计的 fullContent
+      // 会随错误抛出而丢失。这里把已生成内容附在错误上，让 executor 的最后兜底仍能保留它。
+      // （流式中断路径已自带 partialContent；取两者较长者，避免覆盖更完整的内容。）
+      if (fullContent.length > 200) {
+        const existing = (err as any)?.partialContent as string | undefined;
+        if (!existing || existing.length < fullContent.length) {
+          (err as any).partialContent = fullContent;
+        }
+      }
+      throw err;
     }
 
     return {
