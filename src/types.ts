@@ -35,6 +35,8 @@ export interface StepDefinition {
   emoji?: string;             // 自定义 emoji（覆盖角色文件的 emoji）
   task: string;               // 任务描述，支持 {{变量}} 模板
   output?: string;            // 输出变量名
+  skill?: string;             // 给本步挂一个方法论 skill（注入 system prompt），如 "test-driven-development"
+  skills?: string[];          // 多个 skill（与 skill 合并）
   depends_on?: string[];      // 依赖的步骤 id
   type?: 'normal' | 'approval' | 'human_input'; // 节点类型
   prompt?: string;            // approval / human_input 类型的提示文本

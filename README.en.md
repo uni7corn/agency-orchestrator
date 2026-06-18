@@ -264,6 +264,7 @@ ao team list / show / rm             # Manage saved teams
 ao run --team <name> "new task"      # Run a new task with a saved team (locked line-up)
 ao prompt optimize "<prompt>"        # AI-optimize a prompt (--save to keep it reusable)
 ao prompt test / list / garden       # Test / manage / starter templates (prompt library)
+ao skills [name]                     # List / view methodology skills to attach to steps
 ao run <workflow.yaml> [options]      # Execute workflow
 ao validate <workflow.yaml>          # Validate without running
 ao plan <workflow.yaml>              # Show execution plan (DAG)
@@ -331,6 +332,25 @@ ao prompt garden                    # built-in starter templates
 ```
 
 `--mode system|user` distinguishes role/system prompts from task prompts. Optimize only ever produces a **better prompt** (it never executes the prompt). The Studio "Prompts" tab adds side-by-side original-vs-optimized comparison **with AI scoring**. Stored in `~/.ao/prompts/` (`AO_PROMPTS_DIR` to override), shared between CLI and Studio.
+
+### Skills (attach a methodology to a step)
+
+Roles decide *who* does it; skills decide *how*. Attach a **skill** (a methodology playbook) to a workflow step and its method is injected into that step — e.g. make the review step follow a structured review method, or the implementation step do TDD:
+
+```yaml
+steps:
+  - id: review
+    role: "engineering/engineering-code-reviewer"
+    skill: "chinese-code-review"     # single; or skills: ["test-driven-development", ...]
+    task: "Review this code {{code}}"
+```
+
+```bash
+ao skills                            # list all available skills
+ao skills test-driven-development    # view a skill's methodology
+```
+
+Skill content comes straight from the open-source [superpowers-zh](https://github.com/jnMetaCode/superpowers-zh) (MIT, 20 skills, bundled as a dependency — zero config). Or set `AO_SKILLS_DIR=/your/skills/dir` for your own.
 
 ### Resume & Iterate
 

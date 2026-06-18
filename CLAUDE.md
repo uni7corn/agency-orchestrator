@@ -15,7 +15,15 @@ ao team list / show / rm              # Manage saved teams (stored in ~/.ao/team
 ao run --team <name> "task"           # Run a new task with a saved team (locked line-up)
 ao prompt optimize "<prompt>"         # AI-optimize a prompt (--mode system|user, --save)
 ao prompt test / list / show / rm / garden  # Prompt Lab: test / manage / starter templates
+ao skills [name]                      # List / view methodology skills (superpowers-zh) for step `skill:`
 ```
+
+## Skills (methodology playbooks)
+
+A step can carry `skill: "<name>"` (or `skills: [..]`) — the methodology body is injected into that
+step's system prompt at run time (`src/skills/loader.ts`, applied in `core/executor.ts`). Content
+comes from the `superpowers-zh` dependency (`node_modules/superpowers-zh/skills/<name>/SKILL.md`);
+override the source dir with `AO_SKILLS_DIR`. Missing skills are skipped (warn), never fatal.
 
 ## Prompt Lab
 
@@ -95,6 +103,7 @@ steps:
     role: "category/role-name"       # from agency-agents-zh
     task: "Task with {{variables}}"
     output: output_variable
+    skill: "test-driven-development" # optional: inject a methodology playbook (see `ao skills`)
     depends_on: [other_step]         # DAG dependency
     condition: "{{var}} contains X"  # conditional branching
     loop:                            # iterative loop

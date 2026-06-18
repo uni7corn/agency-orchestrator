@@ -273,6 +273,7 @@ ao team list / show / rm              # 管理已保存的团队
 ao run --team <名字> "新任务"          # 用已保存的团队跑新任务（锁定阵容）
 ao prompt optimize "提示词"           # AI 优化提示词（--save 存为可复用资产）
 ao prompt test / list / garden        # 测试 / 管理 / 起手模板（提示词沉淀）
+ao skills [名字]                       # 列出/查看可挂到步骤的方法论 skill
 ao run <workflow.yaml> [选项]          # 执行工作流
 ao validate <workflow.yaml>           # 校验（不执行）
 ao plan <workflow.yaml>               # 查看执行计划（DAG）
@@ -341,6 +342,25 @@ ao prompt garden                  # 内置起手模板
 ```
 
 `--mode system|user` 区分「角色/系统提示词」和「任务提示词」。优化只产出**更好的提示词**（不会直接去执行它）。网页 Studio 的「提示词」页还能原版 vs 优化版**并排对比 + AI 评分**。存在 `~/.ao/prompts/`（`AO_PROMPTS_DIR` 可改），命令行与 Studio 共用。
+
+### Skills（给步骤挂方法论）
+
+角色决定「谁来做」，skill 决定「怎么做」。给工作流某一步挂一个 **skill**（流程剧本），它的方法论会注入该步——比如让代码审查步骤遵循结构化审查法、让实现步骤走 TDD：
+
+```yaml
+steps:
+  - id: review
+    role: "engineering/engineering-code-reviewer"
+    skill: "chinese-code-review"     # 单个；或 skills: ["test-driven-development", ...]
+    task: "审查这段代码 {{code}}"
+```
+
+```bash
+ao skills                      # 列出全部可用 skill
+ao skills test-driven-development   # 看某个 skill 的方法论
+```
+
+skill 内容直接用开源的 [superpowers-zh](https://github.com/jnMetaCode/superpowers-zh)（MIT，20 个,已作为依赖,零配置）；也可设 `AO_SKILLS_DIR=/你的skill目录` 挂自己的。
 
 ### 迭代优化（Resume）
 
