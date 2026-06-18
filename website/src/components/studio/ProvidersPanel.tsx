@@ -12,6 +12,7 @@ const API_META: ApiMeta[] = [
   { id: "apinebula", name: "APINEBULA", hint: "apinebula.com", flagship: true },
   // 普通赞助商 CompShare —— 次于旗舰，中性「赞助商」标记
   { id: "compshare", name: "CompShare", hint: "console.compshare.cn", sponsor: true },
+  { id: "agnes", name: "Agnes AI", hint: "agnes-2.0-flash · agnes-ai.com" },
   { id: "deepseek", name: "DeepSeek", hint: "platform.deepseek.com" },
   { id: "openai", name: "OpenAI", hint: "gpt-4o {etc} · platform.openai.com" },
   { id: "claude", name: "Claude (Anthropic)", hint: "console.anthropic.com" },
