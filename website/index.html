@@ -10,6 +10,15 @@
     'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
     })(window,document,'script','dataLayer','GTM-5WJMJ58D');</script>
     <!-- End Google Tag Manager -->
+    <!-- Google tag (gtag.js) — AO 站专属 GA4。SPA 路由 PV 由 src/App.tsx 的 PageViews 钩子发送，
+         这里关闭自动 page_view(send_page_view:false)，避免首屏与路由切换重复计数。 -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-1KL6CXKD5N"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-1KL6CXKD5N', { send_page_view: false });
+    </script>
     <title>Agency Orchestrator — 一句话，让多个 AI 角色自动协作</title>
     <meta
       name="description"
