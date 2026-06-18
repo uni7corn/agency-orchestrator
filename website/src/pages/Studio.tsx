@@ -23,7 +23,7 @@ const UsagePanel = lazy(() => import("@/components/studio/UsagePanel").then((m) 
 
 // 需要 API key 的 provider。apinebula 是当前默认 provider，必须在列——否则新用户没填 key 时
 // 不会弹「需要配置 key」提示，直接运行才报认证错（commit 61e84a6 改默认后遗漏）。
-const KEYED = ["apinebula", "deepseek", "compshare", "openai", "claude"];
+const KEYED = ["apinebula", "deepseek", "compshare", "agnes", "openai", "claude"];
 
 type Tab = "roles" | "workflows" | "prompt" | "runs" | "usage" | "providers";
 

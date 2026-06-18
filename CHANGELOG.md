@@ -14,6 +14,7 @@
 - **`ao prompt` 文档补齐**：Prompt Lab 合入后 `ao prompt` 一直没进 `ao --help` / README / CLAUDE.md，用户无从发现；现已补上（中英）。
 
 ### Added
+- **新增 Agnes AI provider**：OpenAI 兼容(`apihub.agnes-ai.com/v1`,模型 `agnes-2.0-flash` 等)。`--provider agnes` 即可用,key 走 `AGNES_API_KEY` 环境变量 / Studio 配置(**不在仓库或前端写死**)。Studio 供应商面板、`ao init --provider agnes` 均已接入。
 - **Skills(给步骤挂方法论)**：工作流步骤可加 `skill: "<名字>"`(或 `skills: [..]`)，把「怎么做」的方法论(流程剧本)注入该步的 system prompt——角色决定谁做、skill 决定怎么做。内容直接用开源 **superpowers-zh**(MIT,20 个,已作为依赖,零配置);`AO_SKILLS_DIR` 可换成自己的。`ao skills [名字]` 列出 / 查看;缺失的 skill 跳过不报错。
 - **固定全局目录 `AO_HOME`**（#20）：设 `AO_HOME=~/.ao`（或任意目录）后，运行产物 `ao-output` 与 `compose`/`--team` 生成的工作流统一落到该目录，不再随执行目录散落；也可用 `AO_OUTPUT_DIR` / `AO_WORKFLOWS_DIR` 单独指定。**默认不设时维持原行为**（写到当前目录），向后兼容。团队 / 提示词 / 版本检查一直在 `~/.ao`。
 - **团队 / Loadout（可复用角色阵容）**：把跑得好的角色阵容存下来，套到任意新任务上。

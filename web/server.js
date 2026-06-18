@@ -76,6 +76,7 @@ function buildLLMConfig(provider) {
     : p === 'claude' ? 'claude-sonnet-4-20250514'
     : p === 'openai' ? 'gpt-4o'
     : p === 'apinebula' ? 'gpt-5.5'
+    : p === 'agnes' ? 'agnes-2.0-flash'
     : undefined; // ollama / custom: model must come from saved config
   const model = saved.model || defModel;
   if (model) cfg.model = model;
@@ -101,6 +102,8 @@ const KEY_ENV = {
   compshare: { key: 'COMPSHARE_API_KEY', base: 'COMPSHARE_BASE_URL' },
   // APINEBULA（旗舰赞助商）—— OpenAI 兼容，base 默认 apinebula.com/v1，用户只需填 key + 模型
   apinebula: { key: 'APINEBULA_API_KEY', base: 'APINEBULA_BASE_URL' },
+  // Agnes AI —— OpenAI 兼容,base 默认 apihub.agnes-ai.com/v1,模型如 agnes-2.0-flash
+  agnes: { key: 'AGNES_API_KEY', base: 'AGNES_BASE_URL' },
 };
 function readKeys() {
   try { return JSON.parse(readFileSync(KEYS_FILE, 'utf-8')) || {}; } catch { return {}; }

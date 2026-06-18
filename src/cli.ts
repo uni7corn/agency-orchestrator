@@ -319,7 +319,7 @@ async function handleCompose(): Promise<void> {
 
   const provider = (getArgValue('--provider') || process.env.AO_PROVIDER || 'deepseek') as LLMConfig['provider'];
   const cliProviders = ['claude-code', 'gemini-cli', 'copilot-cli', 'codex-cli', 'openclaw-cli', 'hermes-cli'];
-  const knownApiProviders = ['deepseek', 'claude', 'openai', 'ollama'];
+  const knownApiProviders = ['deepseek', 'claude', 'openai', 'ollama', 'agnes', 'apinebula', 'compshare'];
   const isUnknownProvider = !cliProviders.includes(provider) && !knownApiProviders.includes(provider);
   const cliModel = getArgValue('--model') || process.env.AO_MODEL;
   // 未知 provider（如 zhipu/qwen/moonshot 走 openai-compatible）必须显式指定 model，
@@ -332,6 +332,7 @@ async function handleCompose(): Promise<void> {
     cliProviders.includes(provider) ? '' :
     provider === 'deepseek' ? 'deepseek-chat' :
     provider === 'claude' ? 'claude-sonnet-4-20250514' :
+    provider === 'agnes' ? 'agnes-2.0-flash' :
     'gpt-4o'
   );
   const baseUrl = getArgValue('--base-url') || getArgValue('--baseurl');
@@ -488,6 +489,7 @@ function resolveProviderModel(teamProvider?: string, teamModel?: string): { prov
     provider === 'deepseek' ? 'deepseek-chat' :
     provider === 'claude' ? 'claude-sonnet-4-20250514' :
     provider === 'openai' ? 'gpt-4o' :
+    provider === 'agnes' ? 'agnes-2.0-flash' :
     ''
   );
   return { provider, model };
@@ -718,7 +720,8 @@ async function handlePrompt(): Promise<void> {
     cliProviders.includes(provider) ? '' :
     provider === 'deepseek' ? 'deepseek-chat' :
     provider === 'claude' ? 'claude-sonnet-4-20250514' :
-    provider === 'openai' ? 'gpt-4o' : ''
+    provider === 'openai' ? 'gpt-4o' :
+    provider === 'agnes' ? 'agnes-2.0-flash' : ''
   );
 
   try {
@@ -942,6 +945,7 @@ async function handleInit(): Promise<void> {
         p === 'deepseek' ? 'DEEPSEEK_BASE_URL' :
         p === 'compshare' ? 'COMPSHARE_BASE_URL' :
         p === 'apinebula' ? 'APINEBULA_BASE_URL' :
+        p === 'agnes' ? 'AGNES_BASE_URL' :
         'OPENAI_BASE_URL';
       updates[urlVar] = cfgBaseUrl;
     }
@@ -956,6 +960,7 @@ async function handleInit(): Promise<void> {
         p === 'anthropic' || p === 'claude' ? 'ANTHROPIC_API_KEY' :
         p === 'compshare' ? 'COMPSHARE_API_KEY' :
         p === 'apinebula' ? 'APINEBULA_API_KEY' :
+        p === 'agnes' ? 'AGNES_API_KEY' :
         'OPENAI_API_KEY';
       updates[keyVar] = cfgApiKey;
     }

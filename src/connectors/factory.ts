@@ -59,6 +59,13 @@ export function createConnector(config: LLMConfig): LLMConnector {
         apiKey: config.api_key || process.env.APINEBULA_API_KEY,
         baseUrl: config.base_url || process.env.APINEBULA_BASE_URL || 'https://apinebula.com/v1',
       });
+    case 'agnes':
+      // Agnes AI —— OpenAI 兼容,base_url 写死;模型如 agnes-2.0-flash / agnes-1.5-flash。
+      // key 只从 env / 配置读,绝不在代码里写死(写死=随包公开,免费额度会被刷爆)。
+      return new OpenAICompatibleConnector({
+        apiKey: config.api_key || process.env.AGNES_API_KEY,
+        baseUrl: config.base_url || process.env.AGNES_BASE_URL || 'https://apihub.agnes-ai.com/v1',
+      });
     default:
       // 未知 provider：如果提供了 base_url，当作 OpenAI 兼容 API 处理
       if (config.base_url) {
