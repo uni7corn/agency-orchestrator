@@ -13,6 +13,7 @@ import type { DAG } from './dag.js';
 import { renderTemplate } from './template.js';
 import { evaluateCondition } from './condition.js';
 import { loadAgent } from '../agents/loader.js';
+import { collectSkillNames, injectSkills } from '../skills/loader.js';
 import { createConnector } from '../connectors/factory.js';
 import { createInterface } from 'node:readline';
 
@@ -363,7 +364,16 @@ async function executeStep(
   const agent = loadAgent(opts.agentsDir, node.step.role);
   node.agentName = node.step.name || agent.name;
   node.agentEmoji = node.step.emoji || agent.emoji;
-  const systemPrompt = agent.systemPrompt;
+  let systemPrompt = agent.systemPrompt;
+
+  // 给本步挂 skill（流程剧本）→ 把方法论注入 system prompt 末尾。可选增强，缺失则跳过、不报错。
+  const skillNames = collectSkillNames(node.step);
+  if (skillNames.length) {
+    const inj = injectSkills(systemPrompt, skillNames);
+    systemPrompt = inj.prompt;
+    if (inj.applied.length) process.stderr.write(`  🧠 ${node.step.id} 挂载 skill: ${inj.applied.join(', ')}\n`);
+    if (inj.missing.length) process.stderr.write(`  ⚠️ 找不到 skill（已跳过）: ${inj.missing.join(', ')}\n`);
+  }
 
   // 渲染任务模板
   let userMessage = renderTemplate(node.step.task, opts.context);

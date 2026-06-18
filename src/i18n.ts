@@ -203,6 +203,8 @@ const dict: Dict = {
     run --team <名字> "任务"           用已保存的团队跑新任务（锁定阵容）
     prompt optimize "提示词"          AI 优化提示词（--mode system|user，--save 存下来）
     prompt test / list / show / garden  测试 / 管理 / 起手模板（提示词沉淀）
+    skills                            列出可挂到步骤的方法论 skill（来自 superpowers-zh）
+    skills <名字>                     查看某个 skill 的方法论正文
     serve                             启动 MCP Server（供 Claude Code / Cursor 调用）
     web                               启动可视化 Web Studio（浏览器里勾角色组队、跑工作流）
     run <workflow.yaml>               执行工作流
@@ -268,6 +270,7 @@ const dict: Dict = {
     run --team <name> "task"          Run a new task with a saved team (locked line-up)
     prompt optimize "<prompt>"        AI-optimize a prompt (--mode system|user, --save to keep)
     prompt test / list / show / garden  Test / manage / starter templates (prompt library)
+    skills [name]                     List / view methodology skills (from superpowers-zh) to attach to steps
     serve                             Start MCP server (for Claude Code / Cursor)
     web                               Launch the visual Web Studio (pick roles & run in the browser)
     run <workflow.yaml>               Execute a workflow

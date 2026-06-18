@@ -75,6 +75,9 @@ async function main(): Promise<void> {
     case 'prompt':
       await handlePrompt();
       break;
+    case 'skills':
+      await handleSkills();
+      break;
     case 'demo':
       await handleDemo();
       break;
@@ -94,7 +97,7 @@ async function main(): Promise<void> {
       break;
     default: {
       // 容错：用户可能漏了空格，如 "planworkflows/x.yaml"
-      const knownCmds = ['run', 'validate', 'plan', 'explain', 'compose', 'team', 'prompt', 'demo', 'roles', 'init', 'serve', 'web', 'upgrade'];
+      const knownCmds = ['run', 'validate', 'plan', 'explain', 'compose', 'team', 'prompt', 'skills', 'demo', 'roles', 'init', 'serve', 'web', 'upgrade'];
       const match = knownCmds.find(c => command.startsWith(c) && command.length > c.length);
       if (match) {
         console.error(`看起来少了个空格？试试:\n  ao ${match} ${command.slice(match.length)}\n`);
@@ -816,6 +819,38 @@ async function handlePrompt(): Promise<void> {
     console.error(`\n${t('error.prefix')}: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
   }
+}
+
+/** ao skills — 列出 / 查看可挂到工作流步骤的方法论 skill（来自 superpowers-zh）。 */
+async function handleSkills(): Promise<void> {
+  const S = await import('./skills/loader.js');
+  const dir = S.resolveSkillsDir();
+  const ref = args[1] && !args[1].startsWith('-') ? args[1] : '';
+
+  if (ref) {
+    const sk = S.loadSkill(ref);
+    if (!sk) { console.error(`找不到 skill "${ref}"。用 \`ao skills\` 查看全部。`); process.exit(1); }
+    console.log(`\n  🧠 ${sk.name}\n  ${sk.description}\n`);
+    console.log('─'.repeat(50));
+    console.log(sk.body);
+    console.log('─'.repeat(50));
+    console.log(`\n  在工作流步骤里挂上它：  skill: "${sk.name}"\n`);
+    return;
+  }
+
+  const all = S.listSkills();
+  if (!dir || all.length === 0) {
+    console.log(`\n  没找到 skill 库。skill 用开源的 superpowers-zh（已作为依赖）。`);
+    console.log(`  也可设 AO_SKILLS_DIR=/你的skill目录 用自己的。\n`);
+    return;
+  }
+  console.log(`\n  共 ${all.length} 个 skill (${dir}):\n`);
+  for (const sk of all) {
+    console.log(`  🧠 ${sk.name}`);
+    if (sk.description) console.log(`     ${sk.description.slice(0, 90)}`);
+  }
+  console.log(`\n  用法：在工作流步骤里加 skill: "<名字>"（或 skills: [..]），方法论会注入该步。`);
+  console.log(`  查看某个：ao skills <名字>\n`);
 }
 
 async function handleServe(): Promise<void> {
