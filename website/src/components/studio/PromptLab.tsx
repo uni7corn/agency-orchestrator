@@ -75,19 +75,21 @@ export function PromptLab({ provider, demo, onInstallPrompt }: { provider: strin
     navigator.clipboard?.writeText(text).then(() => { setCopiedKey(key); setTimeout(() => setCopiedKey(null), 1200); });
   };
 
+  // 优化是「单次 LLM 调用」——演示站也能用（CF Pages Function 代理免费额度）。
+  // 端点不存在 / 没配额度时再引导安装。
   const doOptimize = async () => {
-    if (demo) return onInstallPrompt?.();
     if (!raw.trim()) { setErr(L.needRaw); return; }
     setOptimizing(true); setErr(null); setScore(null); setOuts({});
     try {
       const { optimized: opt } = await api.optimizePrompt({ rawPrompt: raw.trim(), mode, provider, lang });
       setOptimized(opt);
-    } catch (e: any) { setErr(e?.message || "optimize failed"); }
-    finally { setOptimizing(false); }
+    } catch (e: any) {
+      if (demo) onInstallPrompt?.();
+      else setErr(e?.message || "optimize failed");
+    } finally { setOptimizing(false); }
   };
 
   const doTest = async () => {
-    if (demo) return onInstallPrompt?.();
     setTesting(true); setErr(null); setScore(null);
     try {
       const targets: [keyof typeof outs, string][] = [["original", raw.trim()]];
@@ -98,11 +100,14 @@ export function PromptLab({ provider, demo, onInstallPrompt }: { provider: strin
       const next: typeof outs = {};
       targets.forEach(([k], i) => { next[k] = results[i].output; });
       setOuts(next);
-    } catch (e: any) { setErr(e?.message || "test failed"); }
-    finally { setTesting(false); }
+    } catch (e: any) {
+      if (demo) onInstallPrompt?.();
+      else setErr(e?.message || "test failed");
+    } finally { setTesting(false); }
   };
 
   const doScore = async () => {
+    if (demo) return onInstallPrompt?.();  // 多结果评分较重，演示站引导安装
     if (!outs.original || !outs.optimized) return;
     setScoring(true); setErr(null);
     try {
