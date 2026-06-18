@@ -17,7 +17,9 @@ let mainWindow = null;
 
 const base = () => `http://127.0.0.1:${port}/`;
 const studioUrl = () => {
-  const lang = String(app.getLocale() || "").toLowerCase().startsWith("zh") ? "zh" : "en";
+  // 中文优先产品：桌面默认中文（即便 macOS 系统语言是英文）。英文仍可在界面右上角切换，
+  // 切换后由 localStorage 记住。AO_DESKTOP_LANG=en 可显式覆盖为英文。
+  const lang = String(process.env.AO_DESKTOP_LANG || "").toLowerCase().startsWith("en") ? "en" : "zh";
   return `${base()}studio?lang=${lang}`;
 };
 
