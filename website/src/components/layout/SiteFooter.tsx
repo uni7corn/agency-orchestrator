@@ -56,16 +56,15 @@ export function SiteFooter() {
             </a>
           </p>
           <p className="mt-2 max-w-xs text-sm text-muted-foreground">
-            {lang === "zh" ? "配套学习 " : "Companion learning "}
+            {lang === "zh" ? "免费配套学习 " : "Free companion learning "}
             <a
               href={SITE.platform}
               target="_blank"
               rel="noreferrer"
               className="font-medium text-foreground underline-offset-2 hover:underline"
             >
-              aiOlaOla ↗
+              {lang === "zh" ? "从零学会 AI 编程 ↗" : "Learn AI coding from scratch ↗"}
             </a>
-            {lang === "zh" ? " · 学 · 用 · 创造 AI" : " · Learn · Use · Create AI"}
           </p>
           <a
             href={SITE.repo}
