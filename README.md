@@ -1,5 +1,15 @@
 # Agency Orchestrator
 
+
+
+
+<!-- aiolaola:start -->
+> 📖 **免费配套学习** · [aiOlaOla — 从零学会 AI 编程 →](https://aiolaola.com/?utm_source=github&utm_campaign=orchestrator)
+> 180 节免费实操课 + 《AI 编程实战三卷书》在线读 + 实战社区 + AI 助教 · **永久免费,登录即学。**
+>
+> 🌟 **姐妹项目**:[agency-agents-zh ⭐15.2k](https://github.com/jnMetaCode/agency-agents-zh) · [superpowers-zh ⭐5.6k](https://github.com/jnMetaCode/superpowers-zh) · [ai-shortfilm-prompts](https://github.com/jnMetaCode/ai-shortfilm-prompts) · [ai-coding-trilogy](https://github.com/jnMetaCode/ai-coding-trilogy) · [ai-coding-guide ⭐405](https://github.com/jnMetaCode/ai-coding-guide)
+<!-- aiolaola:end -->
+
 **中文** | [English](./README.en.md)
 
 > **一句话，让多个 AI 角色自动协作，几分钟出完整方案。**
