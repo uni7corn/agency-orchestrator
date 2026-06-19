@@ -1,15 +1,5 @@
 # Agency Orchestrator
 
-
-
-
-<!-- aiolaola:start -->
-> 📖 **Free companion learning** · [aiOlaOla — Learn AI coding from zero →](https://aiolaola.com/?utm_source=github&utm_campaign=orchestrator)
-> 180 free hands-on lessons + the AI Coding Trilogy online + community + AI tutor · **Free forever, sign in to learn.**
->
-> 🌟 **Sister projects**: [agency-agents-zh ⭐15.2k](https://github.com/jnMetaCode/agency-agents-zh) · [superpowers-zh ⭐5.6k](https://github.com/jnMetaCode/superpowers-zh) · [ai-shortfilm-prompts](https://github.com/jnMetaCode/ai-shortfilm-prompts) · [ai-coding-trilogy](https://github.com/jnMetaCode/ai-coding-trilogy) · [ai-coding-guide ⭐405](https://github.com/jnMetaCode/ai-coding-guide)
-<!-- aiolaola:end -->
-
 **English** | [中文](./README.md)
 
 > **One sentence in, a full plan out — multiple AI roles collaborate automatically.**
@@ -24,6 +14,8 @@
 > **Note:** `ao compose --run` auto-detects your language. Both 216 Chinese roles and 184 English roles ([agency-agents](https://github.com/msitarzewski/agency-agents), MIT) are **bundled in the npm package — no extra download needed**. **10 English workflow templates** are ready in `workflows/en/`.
 
 > 📖 [Full Tutorial](https://dev.to/jnmetacode/agency-orchestrator-one-sentence-five-ai-agents-a-complete-plan-in-3-minutes-1ij6) — from install to real-world use in 10 minutes
+>
+> 📖 **Free companion learning** → [Learn AI coding from zero](https://aiolaola.com/): 180 free hands-on lessons + AI Coding Trilogy online + community · forever free
 
 > If you find this useful, please **Star** it — helps others discover the project.
 
