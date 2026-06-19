@@ -10,6 +10,8 @@ ao run <workflow.yaml> --resume last --from <step-id>  # Re-run from a specific 
 ao validate <workflow.yaml>           # Validate without running
 ao plan <workflow.yaml>               # Show DAG execution plan
 ao roles                              # List all 216 available roles
+ao install --tool claude-code         # Install bundled roles into a coding tool (claude-code/cursor/copilot/gemini-cli/qwen/opencode); --lang zh|en, --category, --dry-run
+ao run <workflow.yaml> --compare      # Run workflow + single-shot baseline + blind judge → side-by-side verdict (productized eval)
 ao team save <workflow.yaml>          # Save a role line-up as a reusable team (Loadout)
 ao team list / show / rm              # Manage saved teams (stored in ~/.ao/teams)
 ao run --team <name> "task"           # Run a new task with a saved team (locked line-up)
