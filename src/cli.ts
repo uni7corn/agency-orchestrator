@@ -20,6 +20,8 @@ import { run, findAgentsDir, compareWorkflowVsBaseline } from './index.js';
 import { formatValidationReport, buildValidationReport } from './cli/validate-report.js';
 import { parseInputPairs } from './cli/parse-inputs.js';
 import { formatCompareReport } from './cli/compare-report.js';
+import { INSTALL_TARGETS, installRoles } from './cli/install.js';
+import { homedir } from 'node:os';
 import { scheduleUpdateCheck, fetchLatestVersion, isNewer, detectUpgradeCommand, PKG } from './utils/version-check.js';
 import { t, detectLang } from './i18n.js';
 import { loadEnvFile, writeEnvFile, ensureEnvGitignored } from './utils/env-loader.js';
@@ -62,6 +64,9 @@ async function main(): Promise<void> {
     case 'roles':
       handleRoles();
       break;
+    case 'install':
+      handleInstall();
+      break;
     case 'init':
       await handleInit();
       break;
@@ -99,7 +104,7 @@ async function main(): Promise<void> {
       break;
     default: {
       // 容错：用户可能漏了空格，如 "planworkflows/x.yaml"
-      const knownCmds = ['run', 'validate', 'plan', 'explain', 'compose', 'team', 'prompt', 'skills', 'demo', 'roles', 'init', 'serve', 'web', 'upgrade'];
+      const knownCmds = ['run', 'validate', 'plan', 'explain', 'compose', 'team', 'prompt', 'skills', 'demo', 'roles', 'install', 'init', 'serve', 'web', 'upgrade'];
       const match = knownCmds.find(c => command.startsWith(c) && command.length > c.length);
       if (match) {
         console.error(`看起来少了个空格？试试:\n  ao ${match} ${command.slice(match.length)}\n`);
@@ -1138,6 +1143,59 @@ function handleRoles(): void {
       }
       console.log('');
     }
+  } catch (err) {
+    console.error(`错误: ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
+}
+
+/**
+ * 严格按语言解析角色库源（install 专用）：不跨语言兜底，避免本仓库根目录的 ./agency-agents(英文)
+ * 抢占了 --lang zh 想要的中文库。zh → 只找 agency-agents-zh；en → 只找 agency-agents。
+ */
+function resolveRoleSource(lang: 'zh' | 'en'): string | null {
+  const scriptDir = dirname(fileURLToPath(import.meta.url));
+  const name = lang === 'zh' ? 'agency-agents-zh' : 'agency-agents';
+  const cands = [
+    `./${name}`,
+    `../${name}`,
+    `./node_modules/${name}`,
+    join(scriptDir, '..', 'node_modules', name),
+    join(scriptDir, '..', '..', 'node_modules', name),
+    join(scriptDir, '..', name), // 包内置
+  ];
+  for (const c of cands) {
+    const r = resolve(c);
+    if (existsSync(r)) return r;
+  }
+  return null;
+}
+
+/** ao install --tool <工具>：把内置角色装进 Claude Code / Cursor 等编码工具。 */
+function handleInstall(): void {
+  const tool = getArgValue('--tool');
+  const target = tool ? INSTALL_TARGETS[tool] : undefined;
+  if (!target) {
+    console.error('用法: ao install --tool <工具> [--lang zh|en] [--category <分类>] [--dry-run]');
+    console.error('  把内置 AI 角色装进编码工具，装完在该工具里直接可用。');
+    console.error('  支持的工具: ' + Object.keys(INSTALL_TARGETS).join(', '));
+    process.exit(1);
+  }
+  const lang = (getArgValue('--lang') as 'zh' | 'en') || 'zh';
+  const category = getArgValue('--category') || undefined;
+  const dryRun = args.includes('--dry-run');
+  const agentsDir = getArgValue('--agents-dir') || resolveRoleSource(lang) || resolveAgentsDir(lang);
+  try {
+    const res = installRoles(agentsDir, target, { home: homedir(), cwd: process.cwd(), category, dryRun });
+    if (res.installed === 0) {
+      console.log(`\n  没有可安装的角色（来源: ${agentsDir}${category ? `, 分类: ${category}` : ''}）\n`);
+      return;
+    }
+    console.log(`\n  ${dryRun ? '将安装' : '✅ 已安装'} ${res.installed} 个角色 → ${target.label}`);
+    console.log(`     目标目录: ${res.destDir}（${target.scope === 'project' ? '项目级' : '用户级'}）`);
+    console.log(`     来源: ${agentsDir}`);
+    if (dryRun) console.log('     （--dry-run，未实际写入）\n');
+    else console.log(`\n  现在在 ${target.label} 里就能用这些角色了。\n`);
   } catch (err) {
     console.error(`错误: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
