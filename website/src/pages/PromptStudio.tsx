@@ -34,7 +34,7 @@ export default function PromptStudio() {
                 : "把靠感觉的提示词，变成可优化 · 可测试 · 可对比的资产。这里可免费试用；完整流程本地安装后使用。"}
             </p>
           </header>
-          <PromptLab provider={provider} demo={offline} onInstallPrompt={() => setInstallOpen(true)} />
+          <PromptLab provider={provider} demo={offline} onInstallPrompt={() => setInstallOpen(true)} hideHeader />
         </div>
       </main>
       {installOpen && <InstallPrompt onClose={() => setInstallOpen(false)} />}

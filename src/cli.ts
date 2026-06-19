@@ -18,6 +18,7 @@ import { buildDAG, formatDAG } from './core/dag.js';
 import { listAgents, filterAgentsByKeyword } from './agents/loader.js';
 import { run, findAgentsDir } from './index.js';
 import { formatValidationReport, buildValidationReport } from './cli/validate-report.js';
+import { parseInputPairs } from './cli/parse-inputs.js';
 import { scheduleUpdateCheck, fetchLatestVersion, isNewer, detectUpgradeCommand, PKG } from './utils/version-check.js';
 import { t, detectLang } from './i18n.js';
 import { loadEnvFile, writeEnvFile, ensureEnvGitignored } from './utils/env-loader.js';
@@ -1124,41 +1125,9 @@ function handleRoles(): void {
   }
 }
 
-/** 解析 --input key=value 和 --input key=@file 参数 */
+/** 解析 --input key=value 和 --input key=@file 参数。逻辑在 cli/parse-inputs.ts，便于单测。 */
 function parseInputArgs(): Record<string, string> {
-  const inputs: Record<string, string> = {};
-
-  for (let i = 2; i < args.length; i++) {
-    if (args[i] === '--input' || args[i] === '-i') {
-      const pair = args[++i];
-      if (!pair) {
-        console.error('--input 需要 key=value 参数');
-        process.exit(1);
-      }
-      const eqIdx = pair.indexOf('=');
-      if (eqIdx < 1) {
-        console.error(`无效的 input 格式: ${pair} (应为 key=value)`);
-        process.exit(1);
-      }
-      const key = pair.slice(0, eqIdx);
-      let value = pair.slice(eqIdx + 1);
-
-      // @file 语法：从文件读取值
-      if (value.startsWith('@')) {
-        const filePath = resolve(value.slice(1));
-        try {
-          value = readFileSync(filePath, 'utf-8');
-        } catch {
-          console.error(`无法读取文件: ${filePath}`);
-          process.exit(1);
-        }
-      }
-
-      inputs[key] = value;
-    }
-  }
-
-  return inputs;
+  return parseInputPairs(args, (msg) => { console.error(msg); process.exit(1); });
 }
 
 /**

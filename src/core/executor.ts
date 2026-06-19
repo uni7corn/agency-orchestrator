@@ -122,6 +122,10 @@ export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<Wo
 
       // 预加载角色名和 emoji，让 onBatchStart 能显示（步骤级配置优先）
       for (const node of batch) {
+        // any_completed 合并步可能在部分依赖失败/跳过时仍然执行（设计意图）。
+        // 那些依赖的 output 变量从未写入 context，若 task 模板引用它们会抛"模板变量未定义"
+        // 而让合并步反而失败。这里为失败/跳过的依赖补空串，使合并步基于已完成分支正常渲染。
+        fillSkippedDepOutputs(dag, node, context);
         if (!node.agentName && node.step.role) {
           try {
             const agentInfo = loadAgent(agentsDir, node.step.role);
@@ -581,6 +585,19 @@ async function handleHumanInput(
       resolve(answer.trim());
     });
   });
+}
+
+// 为「失败/跳过」的依赖补空串：仅当其 output 变量尚未写入 context 时。
+// 正常 all 模式下某依赖失败会让本步被 markDownstreamSkipped 跳过、不会执行到这里；
+// 因此实际只对 any_completed（或所有依赖都已完成）的步骤生效，不会掩盖正常的拼写错误。
+function fillSkippedDepOutputs(dag: DAG, node: DAGNode, context: Map<string, string>): void {
+  for (const depId of node.dependencies) {
+    const dep = dag.nodes.get(depId);
+    if (!dep || !dep.step.output) continue;
+    if ((dep.status === 'failed' || dep.status === 'skipped') && !context.has(dep.step.output)) {
+      context.set(dep.step.output, '');
+    }
+  }
 }
 
 function markDownstreamSkipped(dag: DAG, failedId: string): void {

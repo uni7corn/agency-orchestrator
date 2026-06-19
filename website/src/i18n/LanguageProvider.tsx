@@ -31,11 +31,16 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
-    window.localStorage.setItem("ao-lang", lang);
   }, [lang]);
 
-  const setLang = useCallback((next: Language) => setLangState(next), []);
-  const toggle = useCallback(() => setLangState((p) => (p === "zh" ? "en" : "zh")), []);
+  // 仅在用户「显式切换」时持久化，不在自动检测/launcher 提示时写入。
+  // 否则首次随 ?lang= 检测到的值会被存进 localStorage，反过来盖掉之后每次的 launcher 提示，
+  // 导致桌面端默认语言改了也不生效（中文产品想默认中文却被旧的 en 卡住）。
+  const persist = useCallback((next: Language) => {
+    try { window.localStorage.setItem("ao-lang", next); } catch { /* ignore */ }
+  }, []);
+  const setLang = useCallback((next: Language) => { persist(next); setLangState(next); }, [persist]);
+  const toggle = useCallback(() => setLangState((p) => { const n = p === "zh" ? "en" : "zh"; persist(n); return n; }), [persist]);
   const prefix = useCallback((path: string) => (lang === "zh" ? path : `/en${path === "/" ? "" : path}`), [lang]);
 
   const value = useMemo<LanguageContextValue>(

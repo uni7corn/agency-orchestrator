@@ -23,6 +23,22 @@ function ScrollToTop() {
   return null;
 }
 
+// GA4 单页应用 page_view：gtag 已设 send_page_view:false，由这里在每次路由变化（含首屏）
+// 手动补发，确保各页访问都被统计且不重复。gtag 缺失（如本地无网/被拦）时静默跳过。
+function PageViews() {
+  const { pathname, search } = useLocation();
+  useEffect(() => {
+    const gtag = (window as unknown as { gtag?: (...a: unknown[]) => void }).gtag;
+    if (typeof gtag !== "function") return;
+    gtag("event", "page_view", {
+      page_location: window.location.href,
+      page_path: pathname + search,
+      page_title: document.title,
+    });
+  }, [pathname, search]);
+  return null;
+}
+
 function Fallback() {
   const { t } = useLanguage();
   return (
@@ -34,6 +50,7 @@ export default function App() {
   return (
     <LanguageProvider>
       <ScrollToTop />
+      <PageViews />
       <SiteNavbar />
       <Suspense fallback={<Fallback />}>
         <Routes>

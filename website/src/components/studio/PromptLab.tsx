@@ -38,7 +38,7 @@ function slug(name: string) {
   return name.trim().replace(/[\s/\\:*?"<>|]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "") || "prompt";
 }
 
-export function PromptLab({ provider, demo, onInstallPrompt }: { provider: string; demo?: boolean; onInstallPrompt?: () => void }) {
+export function PromptLab({ provider, demo, onInstallPrompt, hideHeader }: { provider: string; demo?: boolean; onInstallPrompt?: () => void; hideHeader?: boolean }) {
   const { lang } = useLanguage();
   const L = STR[lang === "en" ? "en" : "zh"];
 
@@ -171,10 +171,13 @@ export function PromptLab({ provider, demo, onInstallPrompt }: { provider: strin
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
       <div className="min-w-0">
-        <div className="mb-4">
-          <h2 className="flex items-center gap-2 text-lg font-bold"><Sparkles className="size-5 text-primary" />{L.title}</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">{L.sub}</p>
-        </div>
+        {/* 独立「提示词优化」页(PromptStudio)已有页头时隐藏,避免标题重复 */}
+        {!hideHeader && (
+          <div className="mb-4">
+            <h2 className="flex items-center gap-2 text-lg font-bold"><Sparkles className="size-5 text-primary" />{L.title}</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">{L.sub}</p>
+          </div>
+        )}
 
         {/* mode + garden */}
         <div className="mb-3 flex flex-wrap items-center gap-2">

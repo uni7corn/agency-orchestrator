@@ -239,6 +239,61 @@ steps:
   assert(mock.callLog.length === 2, `LLM 应被调用 2 次（bug + summary），实际: ${mock.callLog.length}`);
 });
 
+// ─── Test 5: any_completed 下游引用「被跳过分支」的独立输出变量 ───
+// 回归：跳过分支的 output 变量从未写入 context，下游模板引用它时不应抛"模板变量未定义"，
+// 而应以空串渲染，使合并步基于已完成分支正常产出。
+await test('any_completed: 下游引用被跳过分支的输出变量不崩，按空串渲染', async () => {
+  const yamlPath = resolve(tmpDir, 'cond-any-completed-distinct.yaml');
+  writeFileSync(yamlPath, `
+name: any_completed 独立变量测试
+description: 两分支各有独立 output，下游同时引用两者
+agents_dir: ${agentsDir}
+${baseLlm}
+inputs:
+  - name: category
+    required: true
+steps:
+  - id: branch_bug
+    role: product/product-manager
+    task: "处理 bug: {{category}}"
+    output: bug_out
+    condition: "{{category}} contains bug"
+  - id: branch_feature
+    role: product/product-manager
+    task: "处理 feature: {{category}}"
+    output: feat_out
+    condition: "{{category}} contains feature"
+  - id: summary
+    role: engineering/engineering-software-architect
+    task: "汇总: bug=[{{bug_out}}] feature=[{{feat_out}}]"
+    output: final_result
+    depends_on:
+      - branch_bug
+      - branch_feature
+    depends_on_mode: any_completed
+`);
+
+  const wf = parseWorkflow(yamlPath);
+  const dag = buildDAG(wf);
+  const mock = new MockConnector();
+
+  const result = await executeDAG(dag, {
+    connector: mock,
+    agentsDir,
+    llmConfig: wf.llm,
+    concurrency: 2,
+    inputs: new Map([['category', 'this is a bug']]),  // 只有 branch_bug 匹配，feat_out 永不写入
+  });
+
+  const featureStep = result.steps.find(s => s.id === 'branch_feature')!;
+  const summaryStep = result.steps.find(s => s.id === 'summary')!;
+  assert(featureStep.status === 'skipped', `branch_feature 应跳过，实际: ${featureStep.status}`);
+  assert(summaryStep.status === 'completed', `summary 应完成而非因未定义变量失败，实际: ${summaryStep.status} (${summaryStep.error || ''})`);
+  // summary 实际收到的 user 消息里被跳过分支的占位应为空
+  const summaryCall = mock.callLog.find(c => c.user.includes('汇总'));
+  assert(!!summaryCall && summaryCall.user.includes('feature=[]'), `被跳过分支变量应渲染为空串，实际: ${summaryCall?.user}`);
+});
+
 // 清理临时目录
 rmSync(tmpDir, { recursive: true });
 
