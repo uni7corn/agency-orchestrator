@@ -21,6 +21,7 @@ import { formatValidationReport, buildValidationReport } from './cli/validate-re
 import { parseInputPairs } from './cli/parse-inputs.js';
 import { formatCompareReport } from './cli/compare-report.js';
 import { INSTALL_TARGETS, installRoles } from './cli/install.js';
+import { materializeFromResult } from './cli/materialize.js';
 import { homedir } from 'node:os';
 import { scheduleUpdateCheck, fetchLatestVersion, isNewer, detectUpgradeCommand, PKG } from './utils/version-check.js';
 import { t, detectLang } from './i18n.js';
@@ -129,6 +130,7 @@ async function handleRun(): Promise<void> {
   if (!filePath) {
     console.error('用法: ao run <workflow.yaml> [--input key=value ...]');
     console.error('  或: ao run --team <名字> "你的任务"   # 用已保存的团队跑新任务');
+    console.error('  --materialize <目录>     把开发步产出的「### 路径 + 代码围栏」文件块落盘成真实项目脚手架');
     console.error('  --compare                跑完后再跑单次基线 + 盲评，并排对比多智能体 vs 单次');
     console.error('  --judge-provider/--judge-model   --compare 时指定评审模型(默认用生成模型)');
     process.exit(1);
@@ -215,6 +217,23 @@ async function handleRun(): Promise<void> {
       feedback,
       llmOverride,
     });
+
+    // --materialize <dir>：把开发步产出的"文件块"落盘成真实项目脚手架
+    const matDir = getArgValue('--materialize');
+    if (matDir) {
+      const dest = resolve(matDir);
+      const mat = materializeFromResult(result, dest);
+      if (mat.files.length) {
+        console.log(`\n  📁 已落盘 ${mat.files.length} 个文件 → ${dest}（来自步骤「${mat.stepId}」）`);
+        for (const f of mat.files.slice(0, 20)) console.log(`     - ${f}`);
+        if (mat.files.length > 20) console.log(`     … 等 ${mat.files.length} 个`);
+        console.log(`\n  脚手架已生成。要可运行/补全，可把它交给 Claude Code / Cursor 继续。`);
+      } else {
+        console.log(`\n  ⚠️ --materialize：未在产出里找到"文件块"（约定格式：### 路径 + 代码围栏）。`);
+      }
+      if (mat.skipped.length) console.log(`  ⛔ 跳过 ${mat.skipped.length} 个不安全路径: ${mat.skipped.slice(0, 5).join(', ')}`);
+    }
+
     process.exit(result.success ? 0 : 1);
   } catch (err) {
     console.error(`\n错误: ${err instanceof Error ? err.message : err}`);
