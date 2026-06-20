@@ -70,6 +70,13 @@ test('四反引号外层可包裹含三反引号的文件(README 嵌套围栏)',
   assert(fs[1].path === 'src/a.ts', '后续文件不应丢失');
 });
 
+test('CRLF 换行也能正确解析(不被尾随 \\r 破坏)', () => {
+  const txt = '### a.ts\r\n```ts\r\nconst a=1\r\n```\r\n';
+  const fs = parseFileBlocks(txt);
+  assert(fs.length === 1 && fs[0].path === 'a.ts', `CRLF 应正常解析, 实际 ${JSON.stringify(fs)}`);
+  assert(fs[0].content.indexOf('\r') === -1, '内容不应残留 \\r');
+});
+
 test('同路径后者覆盖前者', () => {
   const fs = parseFileBlocks('### a.ts\n```ts\nold\n```\n### a.ts\n```ts\nnew\n```\n');
   assert(fs.length === 1 && fs[0].content === 'new', `应后者覆盖: ${JSON.stringify(fs)}`);
@@ -84,6 +91,8 @@ test('.. 逃逸拒绝', () => assert(safeRelPath('../escape.ts', D) === null, '.
 test('深层 .. 逃逸拒绝', () => assert(safeRelPath('a/../../b.ts', D) === null, 'deep escape should be null'));
 test('~ 家目录拒绝', () => assert(safeRelPath('~/x.ts', D) === null, '~ should be null'));
 test('Windows 盘符拒绝', () => assert(safeRelPath('C:\\x.ts', D) === null, 'win abs should be null'));
+test('Windows 盘符相对(C:foo,无斜杠)也拒绝', () => assert(safeRelPath('C:foo.ts', D) === null, 'drive-relative should be null'));
+test('规整后指向根本身(foo/..)拒绝(防 EISDIR)', () => assert(safeRelPath('foo/..', D) === null, '"." should be null'));
 
 console.log('\n─── materializeFromResult ───');
 const mkResult = (steps: { id: string; status: string; output?: string }[]) => ({ steps } as unknown as WorkflowResult);
