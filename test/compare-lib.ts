@@ -60,6 +60,11 @@ test('双向都判基线更高 → 基线胜', () => {
   const v = aggregateVerdict({ scoreA: 5, scoreB: 8, reason: '' }, { scoreA: 9, scoreB: 6, reason: '' });
   assert(v.winner === 'baseline', `应基线胜, 实际 ${v.winner}`);
 });
+test('双向都判平局 → 高可信(真平局也是一致,非位置偏置)', () => {
+  const v = aggregateVerdict({ scoreA: 7, scoreB: 7, reason: '' }, { scoreA: 7, scoreB: 7, reason: '' });
+  assert(v.winner === 'tie', `应平局, 实际 ${v.winner}`);
+  assert(v.consistent === true, '双向都判平应算高可信(判官一致)');
+});
 test('两向矛盾(位置偏置) → 低可信', () => {
   // j1: A=multi 8 > B=base 6 (说 multi 好)；j2: A=base 8 > B=multi 6 (也说"A"好=base 好) → 矛盾
   const v = aggregateVerdict({ scoreA: 8, scoreB: 6, reason: '' }, { scoreA: 8, scoreB: 6, reason: '' });

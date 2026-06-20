@@ -50,7 +50,7 @@ function pathFromFenceInfo(info: string): string | null {
  * 解析文本里的"文件块"。返回 [{path, content}]，按出现顺序；同路径后者覆盖前者。
  */
 export function parseFileBlocks(text: string): FileBlock[] {
-  const lines = text.split('\n');
+  const lines = text.split(/\r?\n/); // 容忍 CRLF：否则尾随 \r 会让围栏正则匹配不上、整体失效
   const blocks: FileBlock[] = [];
   let lastNonBlank = ''; // 紧邻围栏的上一非空行（用于取标题路径）
 
@@ -90,9 +90,10 @@ export function parseFileBlocks(text: string): FileBlock[] {
  */
 export function safeRelPath(candidate: string, destDir: string): string | null {
   let p = candidate.trim().replace(/^\.\//, '');
-  if (!p || p.startsWith('/') || p.startsWith('~') || p.startsWith('\\') || /^[a-zA-Z]:[\\/]/.test(p)) return null;
+  if (!p || p.startsWith('/') || p.startsWith('~') || p.startsWith('\\') || /^[a-zA-Z]:/.test(p)) return null;
   const rel = normalize(p);
   if (rel.startsWith('..' + sep) || rel === '..' || rel.includes(sep + '..' + sep)) return null;
+  if (rel === '.' || rel === '') return null; // 规整后指向目标根本身（如 "foo/.."）→ 拒绝，避免写到目录上 EISDIR
   const full = resolve(destDir, rel);
   const base = resolve(destDir);
   if (full !== base && !full.startsWith(base + sep)) return null;

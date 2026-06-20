@@ -107,7 +107,9 @@ export function aggregateVerdict(j1: JudgeScore, j2: JudgeScore): CompareVerdict
   const baseScore = (j1.scoreB + j2.scoreA) / 2;
   const p1 = j1.scoreA - j1.scoreB;
   const p2 = j2.scoreB - j2.scoreA;
-  const consistent = Math.sign(p1) === Math.sign(p2) && p1 !== 0;
+  // 双向同向即可信：都判多智能体更好 / 都判基线更好 / 双向都判平(p1==p2==0,真平局也是一致)。
+  // 仅当两向矛盾(一向说多、一向说基线)才算低可信(位置偏置)。
+  const consistent = Math.sign(p1) === Math.sign(p2);
   const winner = multiScore > baseScore ? 'multi-agent' : baseScore > multiScore ? 'baseline' : 'tie';
   return { multiScore, baseScore, winner, consistent, reasons: [j1.reason, j2.reason].filter(Boolean) };
 }

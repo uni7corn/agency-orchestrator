@@ -63,6 +63,22 @@ test('--category 过滤 + dry-run 不写文件', () => {
   rmSync(dest, { recursive: true, force: true });
 });
 
+test('嵌套分类同名角色不互相覆盖(用完整路径拍平)', () => {
+  const s = mkdtempSync(join(tmpdir(), 'ao-install-nest-'));
+  mkdirSync(join(s, 'game', 'unity'), { recursive: true });
+  mkdirSync(join(s, 'game', 'godot'), { recursive: true });
+  const role = (n: string) => `---\nname: ${n}\ndescription: d\n---\n\n${n}`;
+  writeFileSync(join(s, 'game', 'unity', 'dev.md'), role('UnityDev'));
+  writeFileSync(join(s, 'game', 'godot', 'dev.md'), role('GodotDev'));
+  const dest = mkdtempSync(join(tmpdir(), 'ao-install-nest-dest-'));
+  const res = installRoles(s, INSTALL_TARGETS['claude-code'], { home: dest, cwd: dest });
+  assert(res.installed === 2, `两个嵌套同名 dev 应都装上, 实际 ${res.installed}`);
+  const files = readdirSync(join(dest, '.claude', 'agents')).sort();
+  assert(files.length === 2, `应 2 个不重名文件, 实际 ${files.join(',')}`);
+  rmSync(s, { recursive: true, force: true });
+  rmSync(dest, { recursive: true, force: true });
+});
+
 rmSync(src, { recursive: true, force: true });
 
 console.log(`\n  结果: ${passed} 通过, ${failed} 失败\n`);
