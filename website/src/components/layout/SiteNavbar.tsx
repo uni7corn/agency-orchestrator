@@ -8,7 +8,7 @@ import { SITE } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 type NavChild = { to: string; label: string; external?: boolean };
-type NavItem = { to?: string; label: string; external?: boolean; children?: NavChild[] };
+type NavItem = { id?: string; to?: string; label: string; external?: boolean; children?: NavChild[] };
 
 export function SiteNavbar() {
   const { t, lang, toggle, prefix } = useLanguage();
@@ -22,7 +22,7 @@ export function SiteNavbar() {
     { to: prefix("/creative"), label: t.nav.creative },
     { to: "https://prompts.aiolaola.com/", label: t.nav.filmPrompts, external: true },
     { to: prefix("/prompt"), label: t.nav.prompt },
-    { label: t.nav.help, children: [
+    { id: "help", label: t.nav.help, children: [
       { to: prefix("/docs"), label: t.nav.docs },
       { to: prefix("/tutorials"), label: t.nav.tutorials },
       { to: prefix("/changelog"), label: t.nav.changelog },
@@ -46,7 +46,7 @@ export function SiteNavbar() {
         <div className="hidden items-center gap-1 md:flex">
           {links.map((l) =>
             l.children ? (
-              <div key={l.label} className="group relative">
+              <div key={l.id} className="group relative">
                 <button className={cn(linkCls, "flex items-center gap-0.5")}>
                   {l.label}
                   <ChevronDown className="size-3.5 opacity-60" />
@@ -122,7 +122,7 @@ export function SiteNavbar() {
           <div className="container-page flex flex-col gap-1 py-3">
             {links.map((l) =>
               l.children ? (
-                <div key={l.label} className="py-1">
+                <div key={l.id} className="py-1">
                   <div className="px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/60">{l.label}</div>
                   {l.children.map((c) => (
                     <a
