@@ -16,6 +16,7 @@ export function SiteNavbar() {
     { to: prefix("/#features"), label: t.nav.features, hash: true },
     { to: prefix("/studio"), label: t.nav.studio },
     { to: prefix("/experts"), label: t.nav.experts },
+    { to: prefix("/creative"), label: t.nav.creative },
     { to: prefix("/prompt"), label: t.nav.prompt },
     { to: prefix("/docs"), label: t.nav.docs },
     { to: prefix("/tutorials"), label: t.nav.tutorials },
