@@ -532,13 +532,23 @@ function firstPositional(): string | undefined {
  */
 function autoProvider(explicit: string | undefined, fallback: string): string {
   if (explicit) return explicit;
-  if (!process.env.DEEPSEEK_API_KEY) {
-    const detected = detectInstalledCliProviders();
-    if (detected.length > 0) {
-      console.log(`  🔌 检测到本机已安装 ${detected[0]}，零配置直接用（要换 provider 用 --provider 指定）\n`);
-      return detected[0];
-    }
+  // 1) 本机已装的订阅制 CLI 优先（零配置、复用登录态）
+  const detected = detectInstalledCliProviders();
+  if (detected.length > 0) {
+    console.log(`  🔌 检测到本机已安装 ${detected[0]}，零配置直接用（要换 provider 用 --provider 指定）\n`);
+    return detected[0];
   }
+  // 2) 没装 CLI：尊重用户已配 key 的 provider（与 Web /api/config 的 recommended 一致），
+  //    避免用户配了 OPENAI/Anthropic key 却被兜底成 deepseek 而报错。
+  const keyed: Array<[string, string]> = [
+    ['deepseek', 'DEEPSEEK_API_KEY'],
+    ['openai', 'OPENAI_API_KEY'],
+    ['claude', 'ANTHROPIC_API_KEY'],
+  ];
+  for (const [provider, envKey] of keyed) {
+    if (process.env[envKey]) return provider;
+  }
+  // 3) 都没有 → 兜底默认
   return fallback;
 }
 

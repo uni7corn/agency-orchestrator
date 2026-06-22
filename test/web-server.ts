@@ -88,6 +88,11 @@ try {
       edges: [{ id: 'a->b', source: 'a', target: 'b' }],
     };
     assert(await post(base, '/api/workflows/graph', okBody) === 200, '/api/workflows/graph 合法图 → 200 保存');
+    // QA #6：缺 edges 数组 → 400（不静默清空依赖）
+    assert(await post(base, '/api/workflows/graph', { name: 't', baseYaml, nodes: okBody.nodes }) === 400, '/api/workflows/graph 缺 edges → 400');
+    // QA #14：节点缺 role → 400
+    const rolelessBody = { name: 't', baseYaml, edges: [], nodes: [{ id: 'a', position: { x: 0, y: 0 }, data: { id: 'a', task: 't1' } }] };
+    assert(await post(base, '/api/workflows/graph', rolelessBody) === 400, '/api/workflows/graph 节点缺 role → 400');
     // 成环：a → b → a，validateWorkflow 应拒
     const cycleBody = { ...okBody, edges: [{ id: 'a->b', source: 'a', target: 'b' }, { id: 'b->a', source: 'b', target: 'a' }] };
     assert(await post(base, '/api/workflows/graph', cycleBody) === 400, '/api/workflows/graph 成环 → 400 被校验拦截');
