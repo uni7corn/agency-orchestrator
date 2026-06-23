@@ -8,7 +8,7 @@
  *   ao plan workflow.yaml
  *   ao roles --agents-dir ./agents
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync, spawn } from 'node:child_process';
@@ -132,6 +132,7 @@ async function handleRun(): Promise<void> {
     console.error('用法: ao run <workflow.yaml> [--input key=value ...]');
     console.error('  或: ao run --team <名字> "你的任务"   # 用已保存的团队跑新任务');
     console.error('  --materialize <目录>     把开发步产出的「### 路径 + 代码围栏」文件块落盘成真实项目脚手架');
+    console.error('  --export <格式>          把本次产出导出:docx/pdf/xlsx(给人)或 skill/plan(给编码 agent 执行)');
     console.error('  --compare                跑完后再跑单次基线 + 盲评，并排对比多智能体 vs 单次');
     console.error('  --judge-provider/--judge-model   --compare 时指定评审模型(默认用生成模型)');
     process.exit(1);
@@ -233,6 +234,34 @@ async function handleRun(): Promise<void> {
         console.log(`\n  ⚠️ --materialize：未在产出里找到"文件块"（约定格式：### 路径 + 代码围栏）。`);
       }
       if (mat.skipped.length) console.log(`  ⛔ 跳过 ${mat.skipped.length} 个不安全路径: ${mat.skipped.slice(0, 5).join(', ')}`);
+    }
+
+    // --export <fmt>：把本次产出导出成 Word/PDF/Excel,或 Skill/可执行计划(给编码 agent 跑)
+    const exportFmt = getArgValue('--export');
+    if (exportFmt) {
+      const allowed = ['docx', 'pdf', 'xlsx', 'skill', 'plan'];
+      if (!allowed.includes(exportFmt)) {
+        console.error(`\n  ⚠️ --export 仅支持: ${allowed.join(' / ')}`);
+      } else {
+        const md = result.steps
+          .filter(s => s.status === 'completed' && s.output)
+          .map(s => `## ${s.agentName || s.role || s.id}\n\n${s.output}`)
+          .join('\n\n---\n\n');
+        if (!md) {
+          console.log(`\n  ⚠️ --export：本次运行没有可导出的产出。`);
+        } else {
+          // 懒加载转换器(xlsx/marked/html-to-docx 较重,仅用到时才载)
+          const { exportMarkdown } = await import('./export/convert.js');
+          const r = await exportMarkdown(md, exportFmt as 'docx' | 'pdf' | 'xlsx' | 'skill' | 'plan', { name: result.name });
+          const safe = (result.name || 'report').replace(/[^一-鿿a-zA-Z0-9_-]+/g, '-').replace(/-+/g, '-').slice(0, 60) || 'report';
+          const out = resolve(`${safe}.${r.ext}`);
+          writeFileSync(out, r.buffer);
+          console.log(`\n  📤 已导出 → ${out}（${r.engine}）`);
+          if (r.ext === 'html' && exportFmt === 'pdf') {
+            console.log(`     (未检测到 pandoc+LaTeX,已输出打印就绪 HTML;浏览器打开 Ctrl-P 存 PDF,或装 pandoc 获更佳排版)`);
+          }
+        }
+      }
     }
 
     process.exit(result.success ? 0 : 1);
