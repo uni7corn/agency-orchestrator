@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 import { SiteNavbar } from "@/components/layout/SiteNavbar";
+import { BackToTop } from "@/components/layout/BackToTop";
 import { LanguageProvider, useLanguage } from "@/i18n/LanguageProvider";
 
 const Home = lazy(() => import("@/pages/Home"));
@@ -53,6 +54,7 @@ export default function App() {
       <ScrollToTop />
       <PageViews />
       <SiteNavbar />
+      <BackToTop />
       <Suspense fallback={<Fallback />}>
         <Routes>
           {["/", "/zh", "/en"].map((p) => (
