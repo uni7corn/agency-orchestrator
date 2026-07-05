@@ -54,7 +54,7 @@ export function SponsorCard({ sponsor }: { sponsor: Sponsor }) {
       href={s.url}
       target="_blank"
       rel="noreferrer"
-      className="group relative flex min-h-[180px] flex-col rounded-2xl border border-border/70 bg-card/60 p-6 transition-all hover:-translate-y-0.5 hover:border-primary/40"
+      className="group relative flex min-h-[180px] flex-col rounded-2xl border border-border/70 bg-card/60 p-6 transition-all hover:z-20 hover:-translate-y-0.5 hover:border-primary/40"
     >
       <ArrowUpRight className="absolute right-4 top-4 size-4 text-muted-foreground transition-colors group-hover:text-primary" />
 
@@ -78,13 +78,8 @@ export function SponsorCard({ sponsor }: { sponsor: Sponsor }) {
         </h3>
       </div>
 
-      {/* 描述填满卡片，避免大片空白；超出部分靠 title 悬停提示查看完整内容 */}
-      <p
-        className="mt-4 flex-1 text-sm leading-relaxed text-muted-foreground line-clamp-4"
-        title={s.description[lang]}
-      >
-        {s.description[lang]}
-      </p>
+      {/* 描述填满卡片，避免大片空白；超出部分悬停时在卡片下方浮层展示完整内容 */}
+      <p className="mt-4 flex-1 text-sm leading-relaxed text-muted-foreground line-clamp-4">{s.description[lang]}</p>
 
       {s.perk && (
         <div className="pt-4">
@@ -94,6 +89,10 @@ export function SponsorCard({ sponsor }: { sponsor: Sponsor }) {
           </span>
         </div>
       )}
+
+      <div className="invisible absolute left-0 top-full z-20 mt-2 w-full rounded-xl border border-border/70 bg-background/95 p-4 text-sm leading-relaxed text-foreground opacity-0 shadow-xl backdrop-blur-xl transition-all group-hover:visible group-hover:opacity-100">
+        {s.description[lang]}
+      </div>
     </a>
   );
 }
