@@ -73,11 +73,16 @@ export function SponsorCard({ sponsor }: { sponsor: Sponsor }) {
             {s.badge}
           </span>
         )}
-        <h3 className="min-w-0 truncate pr-5 text-lg font-bold">{s.name}</h3>
+        <h3 className="min-w-0 truncate pr-5 text-lg font-bold" title={s.name}>
+          {s.name}
+        </h3>
       </div>
 
-      {/* 描述填满卡片，避免大片空白 */}
-      <p className="mt-4 flex-1 text-sm leading-relaxed text-muted-foreground line-clamp-4">
+      {/* 描述填满卡片，避免大片空白；超出部分靠 title 悬停提示查看完整内容 */}
+      <p
+        className="mt-4 flex-1 text-sm leading-relaxed text-muted-foreground line-clamp-4"
+        title={s.description[lang]}
+      >
         {s.description[lang]}
       </p>
 

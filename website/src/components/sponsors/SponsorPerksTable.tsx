@@ -20,7 +20,7 @@ export function SponsorPerksTable() {
         <p className="mt-2 text-muted-foreground">{s.perksSubtitle}</p>
       </div>
 
-      <div className="mx-auto mt-8 max-w-3xl overflow-hidden rounded-2xl border border-border/70">
+      <div className="mx-auto mt-8 max-w-4xl overflow-hidden rounded-2xl border border-border/70">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-muted/50 text-left">
@@ -33,18 +33,18 @@ export function SponsorPerksTable() {
           <tbody>
             {sponsors.map((sp, i) => (
               <tr key={sp.id} className={i % 2 ? "bg-muted/20" : ""}>
-                <td className="px-5 py-3.5">
-                  <span className="flex items-center gap-2.5">
+                <td className="px-5 py-4">
+                  <span className="flex items-center gap-3">
                     {sp.logo ? (
-                      <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg border border-border/60 bg-white">
-                        <img src={sp.logo} alt={sp.name} className="size-6 object-contain" />
+                      <span className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-xl border border-border/60 bg-white shadow-sm">
+                        <img src={sp.logo} alt={sp.name} className="size-9 object-contain" />
                       </span>
                     ) : (
-                      <span className={`grid size-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br text-base ${sp.accent ?? "from-primary to-fuchsia-500"}`}>
+                      <span className={`grid size-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br text-lg shadow-sm ${sp.accent ?? "from-primary to-fuchsia-500"}`}>
                         {sp.badge}
                       </span>
                     )}
-                    <span className="font-medium">{sp.name}</span>
+                    <span className="text-base font-medium">{sp.name}</span>
                   </span>
                 </td>
                 <td className="px-5 py-3.5 text-muted-foreground">{sp.perk?.[lang] ?? sp.tagline[lang]}</td>

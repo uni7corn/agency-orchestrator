@@ -376,7 +376,7 @@ const zh = {
     flagshipDesc: "深度合作伙伴，长期为项目提供关键支持。旗舰位虚位以待，欢迎申请。",
     standardLabel: "更多赞助商",
     standardDesc: "感谢这些持续支持项目、并为用户提供专属优惠的赞助商",
-    visit: "访问网站",
+    visit: "前往",
     couponLabel: "优惠码",
     copyCoupon: "复制优惠码",
     copied: "已复制到剪贴板",
