@@ -3,7 +3,7 @@ import type { Language } from "@/i18n/translations";
 /**
  * 赞助商数据。
  *
- * 当前赞助商：APINEBULA（旗舰，银河录像局旗下 AI 聚合平台）、优云智算（UCloud 旗下 AI 云平台）、RootFlowAI（大模型 API 聚合平台）。
+ * 当前赞助商：APINEBULA（旗舰，银河录像局旗下 AI 聚合平台）、优云智算（UCloud 旗下 AI 云平台）、RootFlowAI（大模型 API 聚合平台）、Cubence（API 中转服务商）。
  * 均为真实付费赞助，非占位样例。新增赞助商时按 Sponsor 结构追加即可。
  */
 
@@ -111,6 +111,30 @@ export const sponsors: Sponsor[] = [
       zh: "注册成功后，添加企业微信服务群即可领取 $10 免费体验额度",
       en: "Register and join our WeCom support group to claim a $10 free trial credit",
     },
+  },
+  {
+    id: "cubence",
+    name: "Cubence",
+    badge: "CB",
+    accent: "from-slate-700 to-slate-500",
+    logo: "/sponsors/logo-cubence-icon.png",
+    url: "https://cubence.com/signup?code=SCW29JP9&source=agency",
+    tier: "standard",
+    since: "2026-07",
+    featured: false,
+    tagline: {
+      zh: "专业 API 中转服务商 · 稳定高效接入 Claude Code / Codex / Gemini",
+      en: "Professional API relay service · stable access to Claude Code / Codex / Gemini",
+    },
+    description: {
+      zh: "感谢 Cubence 对本项目的支持。Cubence 是一家致力为客户提供稳定、高效的 API 中转服务商。从 25 年 9 月运营至今，提供了 Claude Code、Codex、Gemini 等多种模型支持。",
+      en: "Thanks to Cubence for supporting this project! Cubence is dedicated to providing customers with stable, efficient API relay services. Operating since September 2025, it supports Claude Code, Codex, Gemini and more.",
+    },
+    perk: {
+      zh: "首次购买享 9 折优惠",
+      en: "10% off your first purchase",
+    },
+    couponCode: "AGENCY",
   },
 ];
 
