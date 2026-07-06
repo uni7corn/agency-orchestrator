@@ -14,15 +14,16 @@ import { InstallPrompt } from "@/components/studio/InstallPrompt";
 import { WorkflowsPanel } from "@/components/studio/WorkflowsPanel";
 import { useBackend } from "@/components/studio/useBackend";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { api, DEFAULT_PROVIDER, getActiveProvider, hasExplicitProvider, setActiveProvider } from "@/lib/studio";
+import { API_PROVIDERS, api, DEFAULT_PROVIDER, getActiveProvider, hasExplicitProvider, setActiveProvider } from "@/lib/studio";
 import { cn } from "@/lib/utils";
 
 // recharts(~390kB)只在用量 tab 用 → 懒加载，避免拖累 Studio 首屏与演示模式
 const UsagePanel = lazy(() => import("@/components/studio/UsagePanel").then((m) => ({ default: m.UsagePanel })));
 
-// 需要 API key 的 provider。apinebula 是当前默认 provider，必须在列——否则新用户没填 key 时
-// 不会弹「需要配置 key」提示，直接运行才报认证错（commit 61e84a6 改默认后遗漏）。
-const KEYED = ["apinebula", "deepseek", "compshare", "agnes", "openai", "claude"];
+// 需要 API key 的 provider，来自 lib/studio.ts 的统一注册表。apinebula 是当前默认 provider，
+// 必须在列——否则新用户没填 key 时不会弹「需要配置 key」提示，直接运行才报认证错
+// （commit 61e84a6 改默认后遗漏）。新增 provider 只需改 API_PROVIDERS，这里自动跟上。
+const KEYED = API_PROVIDERS.map((p) => p.id);
 
 // 提示词优化已在顶部主导航单独成页(/prompt)，Studio 内不再重复一个 tab。
 type Tab = "roles" | "workflows" | "runs" | "usage" | "providers";

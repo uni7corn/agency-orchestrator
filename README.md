@@ -271,6 +271,8 @@ OPENAI_API_KEY=你的key
 
 > ⚠️ 注意：这些平台请使用 `provider: "openai"`，不要用 `provider: "ollama"`。Ollama 仅用于本地模型，不发送 API Key。
 
+> 💡 **网页 Studio 里更简单**：「供应商」面板支持直接**添加自定义供应商**（任意 OpenAI 兼容 endpoint，带 SiliconFlow / OpenRouter / 火山方舟 / 智谱 / Kimi 等常见预设，点一下自动填 base_url），加完即可在顶部下拉切换使用。Claude Code / Gemini CLI / Codex 卡片还支持配置**第三方中转**（填中转商的 base_url + token，跳过官方账号登录）。
+
 ## CLI 命令
 
 ```bash

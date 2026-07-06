@@ -2,6 +2,7 @@
  * 各 provider 首次使用指南 —— 在 `ao init --provider X` 完成 .env 写入后打印，
  * 告诉用户 provider 自身还需要做什么（OAuth 登录 / 拿 API key / 启本地服务 等）。
  */
+import { API_PROVIDER_MAP } from '../connectors/api-providers.js';
 
 export interface GuideContext {
   /** 本次 init 是否提供了 --api-key */
@@ -100,6 +101,17 @@ export function getProviderGuide(provider: string, ctx: GuideContext): string {
           ].join('\n');
 
     default: {
+      // 内置聚合 API（如 compshare/apinebula/agnes/rootflowai）—— base_url 已在
+      // api-providers.ts 写死，不需要用户再传 --base-url，只缺 key。
+      const spec = API_PROVIDER_MAP[p];
+      if (spec) {
+        return ctx.hasApiKey
+          ? `✅ "${provider}" 已配置（base_url 已内置，无需 --base-url）。`
+          : [
+              `📋 "${provider}" 还缺 API key:`,
+              `   → 再跑: ao init --provider ${provider} --api-key sk-xxx`,
+            ].join('\n');
+      }
       const lines: string[] = [];
       lines.push(`📋 "${provider}" 按自定义 OpenAI 兼容端点处理:`);
       if (!ctx.hasBaseUrl) lines.push(`   ⚠️  还缺 --base-url（/v1 兼容接口地址）`);

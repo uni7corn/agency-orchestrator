@@ -11,6 +11,7 @@ import { OpenClawCLIConnector } from './openclaw-cli.js';
 import { HermesCLIConnector } from './hermes-cli.js';
 import { OllamaConnector } from './ollama.js';
 import { OpenAICompatibleConnector } from './openai-compatible.js';
+import { API_PROVIDER_MAP } from './api-providers.js';
 
 export function createConnector(config: LLMConfig): LLMConnector {
   switch (config.provider) {
@@ -33,40 +34,19 @@ export function createConnector(config: LLMConfig): LLMConnector {
     // ── 需要 API key ──
     case 'claude':
       return new ClaudeConnector(config.api_key);
-    case 'deepseek':
-      // 不 fallback OPENAI_BASE_URL — issue #16: 用户设了 OPENAI_BASE_URL=openai.com 后切到
-      // deepseek 会用 OpenAI endpoint + DeepSeek key 调，得到 405。每个 provider 用自己专属 env
-      return new OpenAICompatibleConnector({
-        apiKey: config.api_key || process.env.DEEPSEEK_API_KEY,
-        baseUrl: config.base_url || process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1',
-      });
-    case 'openai':
-      return new OpenAICompatibleConnector({
-        apiKey: config.api_key || process.env.OPENAI_API_KEY,
-        baseUrl: config.base_url || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-      });
-    case 'compshare':
-      // 优云智算 / CompShare ModelVerse —— OpenAI 兼容，base_url 写死，用户只需填 key + 模型名
-      // （模型如 deepseek-ai/DeepSeek-R1；key 在 console.compshare.cn 获取）
-      return new OpenAICompatibleConnector({
-        apiKey: config.api_key || process.env.COMPSHARE_API_KEY,
-        baseUrl: config.base_url || process.env.COMPSHARE_BASE_URL || 'https://api.modelverse.cn/v1',
-      });
-    case 'apinebula':
-      // APINEBULA（旗舰赞助商）—— 银河录像局旗下 AI 聚合平台，OpenAI 兼容，base_url 写死
-      // 聚合 Claude / GPT / Gemini 满血直连，用户只需填 key + 模型名（如 gpt-5.5；key 在 apinebula.com 获取）
-      return new OpenAICompatibleConnector({
-        apiKey: config.api_key || process.env.APINEBULA_API_KEY,
-        baseUrl: config.base_url || process.env.APINEBULA_BASE_URL || 'https://apinebula.com/v1',
-      });
-    case 'agnes':
-      // Agnes AI —— OpenAI 兼容,base_url 写死;模型如 agnes-2.0-flash / agnes-1.5-flash。
-      // key 只从 env / 配置读,绝不在代码里写死(写死=随包公开,免费额度会被刷爆)。
-      return new OpenAICompatibleConnector({
-        apiKey: config.api_key || process.env.AGNES_API_KEY,
-        baseUrl: config.base_url || process.env.AGNES_BASE_URL || 'https://apihub.agnes-ai.com/v1',
-      });
-    default:
+    default: {
+      // OpenAI 兼容聚合 API（deepseek/openai 官方 + 各赞助商）统一走注册表；
+      // 新增一家只需在 api-providers.ts 加一条，这里不用改。
+      // 注：deepseek 不 fallback OPENAI_BASE_URL —— issue #16: 用户设了
+      // OPENAI_BASE_URL=openai.com 后切到 deepseek 会用 OpenAI endpoint + DeepSeek
+      // key 调，得到 405。每个 provider 用自己专属 env,这里的逐 provider 查表天然满足。
+      const spec = API_PROVIDER_MAP[config.provider];
+      if (spec) {
+        return new OpenAICompatibleConnector({
+          apiKey: config.api_key || process.env[spec.envKey],
+          baseUrl: config.base_url || process.env[spec.envBase] || spec.defaultBaseUrl,
+        });
+      }
       // 未知 provider：如果提供了 base_url，当作 OpenAI 兼容 API 处理
       if (config.base_url) {
         return new OpenAICompatibleConnector({
@@ -86,5 +66,6 @@ export function createConnector(config: LLMConfig): LLMConnector {
         '  免 API key: claude-code / gemini-cli / copilot-cli / codex-cli / openclaw-cli / hermes-cli / ollama\n' +
         '  需 API key: claude / deepseek / openai'
       );
+    }
   }
 }

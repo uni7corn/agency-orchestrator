@@ -14,6 +14,14 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import yaml from 'js-yaml';
 import { detectInstalledCliProviders } from '../dist/providers/detect.js';
+import { API_PROVIDERS, API_PROVIDER_MAP } from '../dist/connectors/api-providers.js';
+import { applyCodexRelay, clearCodexRelay, readCodexRelayStatus } from '../dist/utils/codex-relay.js';
+import { validateCustomProviderId, readCustomProviders, addCustomProvider, removeCustomProvider } from '../dist/utils/custom-providers.js';
+
+// Codex 没有环境变量覆盖机制，中转配置写在 ~/.codex/config.toml + auth.json 里，
+// 用固定的内部 provider id（不管用户填的是哪家中转商），避免还要在 UI 里加个
+// "供应商标识"输入框——跟 claude-code/gemini-cli 的两字段中转表单保持一致简单。
+const CODEX_RELAY_ID = 'ao-relay';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -73,17 +81,19 @@ function buildLLMConfig(provider) {
   if (CLI_PROVIDERS.includes(p)) return cfg; // local CLI: no model/key/base needed
   let saved = {};
   try { saved = readKeys()[p] || {}; } catch {}
-  const defModel = p === 'deepseek' ? 'deepseek-chat'
-    : p === 'claude' ? 'claude-sonnet-4-20250514'
-    : p === 'openai' ? 'gpt-4o'
-    : p === 'apinebula' ? 'gpt-5.5'
-    : p === 'agnes' ? 'agnes-2.0-flash'
-    : undefined; // ollama / custom: model must come from saved config
+  // deepseek/openai/apinebula/agnes/rootflowai 等聚合 API 的默认模型统一在 api-providers.ts
+  // 注册,新增一家不用改这里;claude 走原生 SDK,不在那张表里,单独判断。
+  const defModel = p === 'claude' ? 'claude-sonnet-4-20250514'
+    : API_PROVIDER_MAP[p]?.defaultModel; // ollama / custom: model must come from saved config
   const model = saved.model || defModel;
   if (model) cfg.model = model;
   const defBase = p === 'ollama' ? (saved.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434') : undefined;
   const base = saved.baseUrl || defBase;
   if (base) cfg.base_url = base;
+  // 自定义供应商没有注册在 KEY_ENV 里,没有专属 env 变量名可用 —— 直接把 key 放进
+  // LLMConfig 对象,factory.ts 的 config.api_key 优先于 env 变量,注册过的 provider
+  // 也一样能走这条路(不冲突,等于多了一条更直接的传递方式)。
+  if (saved.apiKey) cfg.api_key = saved.apiKey;
   return cfg;
 }
 const cleanLLMConfig = buildLLMConfig;
@@ -95,16 +105,24 @@ const isAllowedWorkflow = (file) => ALLOWED_WORKFLOW_DIRS.some(d => isInside(fil
 // inherit env) and the in-process compose (factory reads process.env) pick them
 // up — no per-call wiring needed. Keys never leave this machine.
 const KEYS_FILE = join(DATA_DIR, '.local', 'web-keys.json');
+// 自定义供应商的展示元数据（名称/备注/官网）；连接信息（key/base_url/model）复用
+// web-keys.json，跟内置 provider 存法一样，用 provider id 当 key。
+const CUSTOM_PROVIDERS_FILE = join(DATA_DIR, '.local', 'custom-providers.json');
+// 校验自定义供应商 id 时要避开的保留字：内置 CLI + 已知云端 provider + ollama。
+function reservedProviderIds() {
+  return new Set([...CLI_PROVIDERS, ...Object.keys(KEY_ENV), 'ollama']);
+}
+// deepseek/openai/compshare/apinebula/agnes/rootflowai 等 OpenAI 兼容 provider 的 key/base
+// env 变量名统一来自 api-providers.ts；claude 走原生 SDK,不在那张表里,单独补一条。
 const KEY_ENV = {
-  deepseek: { key: 'DEEPSEEK_API_KEY', base: 'DEEPSEEK_BASE_URL' },
-  openai: { key: 'OPENAI_API_KEY', base: 'OPENAI_BASE_URL' },
   claude: { key: 'ANTHROPIC_API_KEY', base: null },
-  // 优云智算 / CompShare（赞助商）—— OpenAI 兼容，base 默认 api.modelverse.cn，用户只需填 key + 模型
-  compshare: { key: 'COMPSHARE_API_KEY', base: 'COMPSHARE_BASE_URL' },
-  // APINEBULA（旗舰赞助商）—— OpenAI 兼容，base 默认 apinebula.com/v1，用户只需填 key + 模型
-  apinebula: { key: 'APINEBULA_API_KEY', base: 'APINEBULA_BASE_URL' },
-  // Agnes AI —— OpenAI 兼容,base 默认 apihub.agnes-ai.com/v1,模型如 agnes-2.0-flash
-  agnes: { key: 'AGNES_API_KEY', base: 'AGNES_BASE_URL' },
+  ...Object.fromEntries(API_PROVIDERS.map((p) => [p.id, { key: p.envKey, base: p.envBase }])),
+  // claude-code / gemini-cli 走本地 CLI 子进程,不经过 factory 的 connector,而是这两个
+  // 官方 CLI 自己原生支持的"中转"环境变量 —— 未登录官方账号时,填第三方中转商(如
+  // Cubence)的 base_url + token 也能用。子进程 spawn 时 env:{...process.env} 会
+  // 原样带过去,不需要 factory/connector 认识这两个 key。
+  'claude-code': { key: 'ANTHROPIC_AUTH_TOKEN', base: 'ANTHROPIC_BASE_URL' },
+  'gemini-cli': { key: 'GEMINI_API_KEY', base: 'GOOGLE_GEMINI_BASE_URL' },
 };
 function readKeys() {
   try { return JSON.parse(readFileSync(KEYS_FILE, 'utf-8')) || {}; } catch { return {}; }
@@ -364,6 +382,9 @@ app.post('/api/run', (req, res) => {
     const llm = cleanLLMConfig(provider);
     if (llm.model) args.push('--model', llm.model);
     if (llm.base_url) args.push('--base-url', llm.base_url);
+    // 自定义供应商没有注册的 env 变量名，key 只能这样带过去（本机单用户工具，
+    // 跟 --base-url/--model 走的是同一条"CLI 参数"路径，一致的取舍）。
+    if (llm.api_key) args.push('--api-key', llm.api_key);
   }
   if (resume) {
     args.push('--resume', resume === true ? 'last' : resume);
@@ -528,11 +549,11 @@ app.post('/api/compare', async (req, res) => {
   if (!existsSync(resolvedFile)) return res.status(404).json({ error: 'workflow file not found' });
   try {
     const { compareWorkflowVsBaseline } = await import('../dist/index.js');
-    const llm = buildLLMConfig(provider); // key 已在启动时注入 process.env，connector 自取
+    const llm = buildLLMConfig(provider); // 注册 provider 的 key 已在启动时注入 process.env；自定义供应商靠 llm.api_key 直传
     const cmp = await compareWorkflowVsBaseline(resolvedFile, inputs || {}, {
       quiet: true,
       outputDir: OUTPUT_DIR,
-      genOverride: { provider: llm.provider, model: llm.model, base_url: llm.base_url },
+      genOverride: { provider: llm.provider, model: llm.model, base_url: llm.base_url, api_key: llm.api_key },
     });
     res.json({ multiOutput: cmp.multiOutput, baselineOutput: cmp.baselineOutput, verdict: cmp.verdict });
   } catch (err) {
@@ -1034,6 +1055,27 @@ app.get('/api/config', (_req, res) => {
     model: saved.ollama?.model || '',
     configured: !!saved.ollama?.model,
   };
+  // Codex 中转状态读的是 ~/.codex/config.toml，不是 web-keys.json/env，单独查。
+  const codexRelay = readCodexRelayStatus(CODEX_RELAY_ID);
+  providers['codex-cli'] = {
+    family: 'api',
+    hasKey: codexRelay.configured,
+    baseUrl: codexRelay.baseUrl || '',
+    supportsBaseUrl: true,
+  };
+  // 自定义供应商：连接信息（key/base_url/model）跟内置 provider 一样存在 saved[id] 里，
+  // 只是没有 KEY_ENV 里的专属 env 变量名 —— hasKey 只看 saved,不查 process.env。
+  const customProviders = readCustomProviders(CUSTOM_PROVIDERS_FILE);
+  for (const meta of customProviders) {
+    providers[meta.id] = {
+      family: 'api',
+      hasKey: !!saved[meta.id]?.apiKey,
+      fromEnv: false,
+      baseUrl: saved[meta.id]?.baseUrl || '',
+      model: saved[meta.id]?.model || '',
+      supportsBaseUrl: true,
+    };
+  }
   // 探测本机已安装的订阅制 CLI（可零配置直接用，无需在 AO 配 key）。
   const installedCli = detectInstalledCliProviders();
   const cli = CLI_PROVIDERS.map((name) => ({ name, installed: installedCli.includes(name) }));
@@ -1045,13 +1087,40 @@ app.get('/api/config', (_req, res) => {
     cli,
     installedCli,
     recommended,
+    customProviders,
     defaultProvider: process.env.AO_PROVIDER || 'apinebula',
   });
 });
 
 app.post('/api/config', (req, res) => {
   const { provider, apiKey, baseUrl, model } = req.body || {};
-  const isKeyed = !!KEY_ENV[provider];
+  // Codex 中转走 ~/.codex/config.toml + auth.json，跟其它 provider 的存储方式完全不同，
+  // 单独分支处理，不进下面 KEY_ENV/web-keys.json 那套逻辑。
+  if (provider === 'codex-cli') {
+    try {
+      if (typeof apiKey === 'string' && apiKey.trim() === '' && baseUrl == null) {
+        clearCodexRelay(CODEX_RELAY_ID);
+        return res.json({ ok: true });
+      }
+      if (typeof apiKey !== 'string' || !apiKey.trim() || typeof baseUrl !== 'string' || !baseUrl.trim()) {
+        return res.status(400).json({ error: 'apiKey and baseUrl required' });
+      }
+      const { backups } = applyCodexRelay({
+        providerId: CODEX_RELAY_ID,
+        name: 'AO Relay',
+        baseUrl: baseUrl.trim(),
+        apiKey: apiKey.trim(),
+        model: typeof model === 'string' && model.trim() ? model.trim() : undefined,
+      });
+      return res.json({ ok: true, backups });
+    } catch (err) {
+      return res.status(500).json({ error: err?.message || String(err) });
+    }
+  }
+  // 自定义供应商没有 KEY_ENV 项（没有专属 env 变量名），但仍然走 saved[provider] 这套
+  // 存法 —— 跟已注册 provider 唯一的区别是"清空时不用去删 process.env"（因为压根没写过）。
+  const isCustom = readCustomProviders(CUSTOM_PROVIDERS_FILE).some((p) => p.id === provider);
+  const isKeyed = !!KEY_ENV[provider] || isCustom;
   if (!provider || (!isKeyed && provider !== 'ollama')) return res.status(400).json({ error: 'unknown provider' });
   const saved = readKeys();
   // explicit clear (empty apiKey for keyed / empty model for ollama, nothing else)
@@ -1060,8 +1129,8 @@ app.post('/api/config', (req, res) => {
     : (typeof model === 'string' && model.trim() === '' && baseUrl == null);
   if (clearing) {
     delete saved[provider];
-    if (isKeyed) { delete process.env[KEY_ENV[provider].key]; if (KEY_ENV[provider].base) delete process.env[KEY_ENV[provider].base]; }
-    else delete process.env.OLLAMA_BASE_URL;
+    if (KEY_ENV[provider]) { delete process.env[KEY_ENV[provider].key]; if (KEY_ENV[provider].base) delete process.env[KEY_ENV[provider].base]; }
+    else if (!isCustom) delete process.env.OLLAMA_BASE_URL;
   } else {
     saved[provider] = saved[provider] || {};
     if (typeof apiKey === 'string' && apiKey.trim()) saved[provider].apiKey = apiKey.trim();
@@ -1073,11 +1142,53 @@ app.post('/api/config', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── 自定义供应商：新增 / 删除。编辑已有的连接信息(key/base_url/model)复用上面的
+// POST /api/config —— 那条路已经认识自定义 provider id 了(见 isCustom 判断)。
+app.post('/api/custom-providers', (req, res) => {
+  const { id, name, note, homepageUrl, baseUrl, apiKey, model } = req.body || {};
+  if (typeof id !== 'string' || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'id and name required' });
+  }
+  if (typeof baseUrl !== 'string' || !baseUrl.trim()) {
+    return res.status(400).json({ error: 'baseUrl required' });
+  }
+  const err = validateCustomProviderId(id, reservedProviderIds());
+  const existing = readCustomProviders(CUSTOM_PROVIDERS_FILE);
+  if (existing.some((p) => p.id === id)) {
+    return res.status(400).json({ error: '这个标识已存在' });
+  }
+  if (err) return res.status(400).json({ error: err });
+  addCustomProvider(CUSTOM_PROVIDERS_FILE, {
+    id,
+    name: name.trim(),
+    note: typeof note === 'string' && note.trim() ? note.trim() : undefined,
+    homepageUrl: typeof homepageUrl === 'string' && homepageUrl.trim() ? homepageUrl.trim() : undefined,
+  });
+  const saved = readKeys();
+  saved[id] = {};
+  if (typeof apiKey === 'string' && apiKey.trim()) saved[id].apiKey = apiKey.trim();
+  saved[id].baseUrl = baseUrl.trim();
+  if (typeof model === 'string' && model.trim()) saved[id].model = model.trim();
+  writeKeys(saved);
+  res.json({ ok: true });
+});
+
+app.delete('/api/custom-providers/:id', (req, res) => {
+  const { id } = req.params;
+  removeCustomProvider(CUSTOM_PROVIDERS_FILE, id);
+  const saved = readKeys();
+  delete saved[id];
+  writeKeys(saved);
+  res.json({ ok: true });
+});
+
 // ── Test a provider's key with a minimal real API call ──
 app.post('/api/test-provider', async (req, res) => {
   const { provider } = req.body || {};
-  if (!provider || (!KEY_ENV[provider] && provider !== 'ollama')) return res.status(400).json({ ok: false, error: 'unknown provider' });
-  const key = provider === 'ollama' ? 'n/a' : process.env[KEY_ENV[provider].key];
+  const isCustomProvider = readCustomProviders(CUSTOM_PROVIDERS_FILE).some((p) => p.id === provider);
+  if (!provider || (!KEY_ENV[provider] && provider !== 'ollama' && !isCustomProvider)) return res.status(400).json({ ok: false, error: 'unknown provider' });
+  // 自定义供应商没有专属 env 变量名，key 只存在 saved[provider].apiKey 里。
+  const key = provider === 'ollama' ? 'n/a' : (KEY_ENV[provider] ? process.env[KEY_ENV[provider].key] : readKeys()[provider]?.apiKey);
   if (!key) return res.json({ ok: false, error: '未设置 API key' });
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12000);
@@ -1099,11 +1210,13 @@ app.post('/api/test-provider', async (req, res) => {
         body: JSON.stringify({ model: 'claude-3-5-haiku-20241022', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
       });
     } else {
+      // 每个 OpenAI 兼容 provider 的默认 base_url/模型都查 api-providers.ts 这张表 ——
+      // 之前这里只对 deepseek 特判，其余(含 compshare/apinebula/agnes 等赞助商)会误用
+      // OPENAI_BASE_URL + gpt-4o-mini 去测,对聚合商大概率 404。
       const saved = readKeys()[provider] || {};
-      const base = (provider === 'deepseek'
-        ? (saved.baseUrl || process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1')
-        : (saved.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1')).replace(/\/$/, '');
-      const model = provider === 'deepseek' ? 'deepseek-chat' : 'gpt-4o-mini';
+      const spec = API_PROVIDER_MAP[provider];
+      const base = (saved.baseUrl || (spec && process.env[spec.envBase]) || spec?.defaultBaseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
+      const model = saved.model || spec?.defaultModel || 'gpt-4o-mini';
       r = await fetch(`${base}/chat/completions`, {
         method: 'POST', signal: ctrl.signal,
         headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },

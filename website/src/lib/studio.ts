@@ -214,6 +214,14 @@ export interface CliProviderStatus {
   installed: boolean;
 }
 
+export interface CustomProviderMeta {
+  id: string;
+  name: string;
+  note?: string;
+  homepageUrl?: string;
+  createdAt: number;
+}
+
 export interface ConfigResponse {
   providers: Record<string, ProviderKeyStatus>;
   cli: (string | CliProviderStatus)[];
@@ -221,8 +229,33 @@ export interface ConfigResponse {
   installedCli?: string[];
   /** 推荐默认 provider：已装 CLI 优先 > 已配 key > 默认。 */
   recommended?: string;
+  /** 用户自己加的自定义供应商（任意 OpenAI 兼容 endpoint）。 */
+  customProviders?: CustomProviderMeta[];
   defaultProvider: string;
 }
+
+/** 预设的常见 OpenAI 兼容 endpoint —— 纯数据，点一下帮用户填 base_url，不是赞助商。 */
+export interface CustomProviderPreset {
+  name: string;
+  baseUrl: string;
+}
+export const CUSTOM_PROVIDER_PRESETS: CustomProviderPreset[] = [
+  { name: "SiliconFlow 硅基流动", baseUrl: "https://api.siliconflow.cn/v1" },
+  { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" },
+  { name: "ModelScope 魔搭", baseUrl: "https://api-inference.modelscope.cn/v1" },
+  { name: "火山方舟 Volcengine Ark", baseUrl: "https://ark.cn-beijing.volces.com/api/v3" },
+  { name: "Zhipu GLM 智谱", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+  { name: "Moonshot Kimi", baseUrl: "https://api.moonshot.cn/v1" },
+  { name: "MiniMax", baseUrl: "https://api.minimax.chat/v1" },
+  { name: "阿里云 DashScope (Qwen)", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+  { name: "StepFun 阶跃星辰", baseUrl: "https://api.stepfun.com/v1" },
+  { name: "百川智能 Baichuan", baseUrl: "https://api.baichuan-ai.com/v1" },
+  { name: "零一万物 01.AI", baseUrl: "https://api.lingyiwanwu.com/v1" },
+  { name: "Together AI", baseUrl: "https://api.together.xyz/v1" },
+  { name: "Groq", baseUrl: "https://api.groq.com/openai/v1" },
+  { name: "Mistral AI", baseUrl: "https://api.mistral.ai/v1" },
+  { name: "Fireworks AI", baseUrl: "https://api.fireworks.ai/inference/v1" },
+];
 
 const ACTIVE_KEY = "ao-active-provider";
 export function getActiveProvider(): string {
@@ -303,9 +336,13 @@ export const api = {
   usage: () => getJSON<UsageResponse>("/usage"),
   config: () => getJSON<ConfigResponse>("/config"),
   saveConfig: (body: { provider: string; apiKey?: string; baseUrl?: string; model?: string }) =>
-    postJSON<{ ok: boolean }>("/config", body),
+    // backups 只有 codex-cli 这条中转会带（写了 ~/.codex 前自动备份的原文件路径）
+    postJSON<{ ok: boolean; backups?: string[] }>("/config", body),
   testProvider: (provider: string) =>
     postJSON<{ ok: boolean; latencyMs?: number; error?: string; note?: string }>("/test-provider", { provider }),
+  createCustomProvider: (body: { id: string; name: string; note?: string; homepageUrl?: string; baseUrl: string; apiKey?: string; model?: string }) =>
+    postJSON<{ ok: boolean }>("/custom-providers", body),
+  deleteCustomProvider: (id: string) => delJSON<{ ok: boolean }>(`/custom-providers/${encodeURIComponent(id)}`),
   roles: (lang?: string) => getJSON<Role[]>(`/roles${lang === "en" ? "?lang=en" : ""}`),
   role: (category: string, id: string, lang?: string) =>
     getJSON<Role>(`/roles/${category}/${id}${lang === "en" ? "?lang=en" : ""}`),
@@ -421,16 +458,60 @@ export function runRole(
 // 默认 provider：旗舰赞助商 APINEBULA（取代原来的 DeepSeek 默认）
 export const DEFAULT_PROVIDER = "apinebula";
 
-export const PROVIDERS = ["apinebula", "compshare", "agnes", "deepseek", "openai", "claude", "claude-code", "gemini-cli", "openclaw-cli", "ollama"];
+/**
+ * 需要 API key 的云端聚合 provider 的统一注册表（Studio 前端专用）。
+ * 新增一家（未来会越来越多）只需在这里加一条 —— ProvidersPanel 的卡片/模型建议、
+ * 顶部 provider 下拉、"需配置 key" 判断、赞助商标记都从这里派生，不用五处分别改。
+ * 中英文 hint 文案（仅赞助商需要）单独在 i18n/translations.ts 里维护。
+ * 后端连接逻辑（env 变量名、默认 base_url/模型）对应的注册表在 src/connectors/api-providers.ts。
+ */
+export interface ApiProviderMeta {
+  id: string;
+  name: string;
+  /** 下拉选择器里的短名，缺省用 name（如 Claude 卡片名带 "(Anthropic)" 后缀，下拉里只要短名） */
+  shortName?: string;
+  hint: string;
+  flagship?: boolean;
+  sponsor?: boolean;
+  modelSuggestions?: string[];
+}
+
+export const API_PROVIDERS: ApiProviderMeta[] = [
+  // 旗舰赞助商 APINEBULA —— 置顶 + 金色高亮（大屏特有）
+  { id: "apinebula", name: "APINEBULA", hint: "apinebula.com", flagship: true, modelSuggestions: ["gpt-5.5", "claude-opus-4", "gemini-2.5-pro", "deepseek-chat"] },
+  // 普通赞助商 CompShare —— 次于旗舰，中性「赞助商」标记
+  { id: "compshare", name: "CompShare", hint: "console.compshare.cn", sponsor: true, modelSuggestions: ["deepseek-ai/DeepSeek-R1", "deepseek-ai/DeepSeek-V3"] },
+  // 普通赞助商 RootFlowAI —— 前 3 位，紧跟两家旗舰/赞助商之后
+  { id: "rootflowai", name: "RootFlowAI", hint: "rootflowai.com", sponsor: true, modelSuggestions: ["claude-sonnet-4-6", "claude-opus-4-7", "gpt-5.5", "gemini-3.1-pro-preview"] },
+  { id: "deepseek", name: "DeepSeek", hint: "platform.deepseek.com", modelSuggestions: ["deepseek-chat", "deepseek-reasoner"] },
+  { id: "claude", name: "Claude (Anthropic)", shortName: "Claude", hint: "console.anthropic.com", modelSuggestions: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022"] },
+  { id: "openai", name: "OpenAI", hint: "gpt-4o {etc} · platform.openai.com", modelSuggestions: ["gpt-4o", "gpt-4o-mini", "o1", "o3-mini", "gpt-4.1"] },
+  { id: "agnes", name: "Agnes AI", hint: "agnes-2.0-flash · agnes-ai.com", modelSuggestions: ["agnes-2.0-flash", "agnes-1.5-flash"] },
+];
+
+export const API_PROVIDER_MAP: Record<string, ApiProviderMeta> = Object.fromEntries(
+  API_PROVIDERS.map((p) => [p.id, p]),
+);
+
+/**
+ * 支持"自定义中转"的本地 CLI provider —— 这些官方 CLI 都能把请求指向第三方中转
+ * 服务（如 Cubence），不需要登录官方账号也能用，前端只收集 base_url + token 两个
+ * 字段。claude-code / gemini-cli 走环境变量（ANTHROPIC_BASE_URL+ANTHROPIC_AUTH_TOKEN
+ * / GOOGLE_GEMINI_BASE_URL+GEMINI_API_KEY），只影响 AO spawn 出的子进程，不碰用户
+ * 全局配置。codex-cli 比较特殊：它没有环境变量覆盖机制，只能通过改写用户 home 目录
+ * 下的 ~/.codex/config.toml + auth.json 生效——这两个文件在项目之外，保存前
+ * 后端会自动备份原文件（.ao-backup-<时间戳>），但仍然是全局生效（会影响你在 AO
+ * 之外直接用 codex 命令行的行为），需要在 UI 里对这一条给更明确的提示。
+ */
+export const CLI_RELAY_SUPPORT = new Set(["claude-code", "gemini-cli", "codex-cli"]);
+/** 中转配置是"全局生效"（写用户 home 目录下的真实 CLI 配置文件）而非仅影响 AO 子进程的 provider。 */
+export const CLI_RELAY_GLOBAL_WRITE = new Set(["codex-cli"]);
+
+export const PROVIDERS = [...API_PROVIDERS.map((p) => p.id), "claude-code", "gemini-cli", "openclaw-cli", "ollama"];
 
 // 仅品牌名（语言无关）。
 export const PROVIDER_LABELS: Record<string, string> = {
-  apinebula: "APINEBULA",
-  deepseek: "DeepSeek",
-  compshare: "CompShare",
-  agnes: "Agnes AI",
-  openai: "OpenAI",
-  claude: "Claude",
+  ...Object.fromEntries(API_PROVIDERS.map((p) => [p.id, p.shortName ?? p.name])),
   "claude-code": "Claude Code CLI",
   "gemini-cli": "Gemini CLI",
   "openclaw-cli": "OpenClaw CLI",

@@ -1,15 +1,14 @@
 import { Check, ChevronDown, Star } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { PROVIDER_LABELS, PROVIDERS } from "@/lib/studio";
+import { api, API_PROVIDERS, PROVIDER_LABELS, PROVIDERS, type CustomProviderMeta } from "@/lib/studio";
 import { sponsorsByTier } from "@/content/sponsors";
 import { cn } from "@/lib/utils";
 
 // 旗舰赞助商对应的 provider id（金色高亮 + 星标 + 徽章）
 const FLAGSHIP_ID = sponsorsByTier("flagship")[0]?.id;
-// 普通赞助商对应的 provider id（中性「赞助商」标记，不抢旗舰风头）。
-// 注意：赞助商 content 里的 id（如 youyun）与 provider id（compshare）不一致，这里直接按 provider id 列。
-const SPONSOR_IDS = ["compshare"];
+// 普通赞助商对应的 provider id（中性「赞助商」标记，不抢旗舰风头），来自统一注册表。
+const SPONSOR_IDS = API_PROVIDERS.filter((p) => p.sponsor).map((p) => p.id);
 
 /**
  * Studio 顶部 provider 选择器。原生 <select> 无法给单个选项上色/加徽章，
@@ -18,7 +17,14 @@ const SPONSOR_IDS = ["compshare"];
 export function ProviderSelect({ value, onChange }: { value: string; onChange: (p: string) => void }) {
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
+  // 用户在供应商面板加的自定义供应商也要能在这里切换/显示名称，不能只认静态 PROVIDERS 列表。
+  // 演示站没有引擎后端时拉不到 config —— 静默回退为空列表，下拉里只有内置 provider。
+  const [customProviders, setCustomProviders] = useState<CustomProviderMeta[]>([]);
   const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    api.config().then((c) => setCustomProviders(c.customProviders ?? [])).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -34,10 +40,13 @@ export function ProviderSelect({ value, onChange }: { value: string; onChange: (
     };
   }, [open]);
 
-  const labelFor = (p: string) => (p === "" ? t.studio.shell.providerDefault : PROVIDER_LABELS[p] ?? p);
+  const labelFor = (p: string) =>
+    p === "" ? t.studio.shell.providerDefault : PROVIDER_LABELS[p] ?? customProviders.find((c) => c.id === p)?.name ?? p;
   const isFlagship = (p: string) => !!FLAGSHIP_ID && p === FLAGSHIP_ID;
   const isSponsor = (p: string) => SPONSOR_IDS.includes(p);
   const selectedFlagship = isFlagship(value);
+  // 自定义供应商排在内置列表之后（去重：万一自定义 id 撞了内置 id，以内置为准）
+  const allProviders = [...PROVIDERS, ...customProviders.map((c) => c.id).filter((id) => !PROVIDERS.includes(id))];
 
   return (
     <div className="relative" ref={ref}>
@@ -59,7 +68,7 @@ export function ProviderSelect({ value, onChange }: { value: string; onChange: (
 
       {open && (
         <div className="absolute right-0 z-50 mt-1.5 max-h-[70vh] w-60 overflow-auto rounded-xl border border-border/70 bg-card p-1 shadow-xl">
-          {PROVIDERS.map((p) => {
+          {allProviders.map((p) => {
             const flag = isFlagship(p);
             const sponsor = isSponsor(p);
             const on = p === value;

@@ -18,6 +18,7 @@ import { buildDAG, formatDAG } from './core/dag.js';
 import { listAgents, filterAgentsByKeyword } from './agents/loader.js';
 import { run, findAgentsDir, compareWorkflowVsBaseline } from './index.js';
 import { detectInstalledCliProviders } from './providers/detect.js';
+import { API_PROVIDERS, API_PROVIDER_MAP } from './connectors/api-providers.js';
 import { formatValidationReport, buildValidationReport } from './cli/validate-report.js';
 import { parseInputPairs } from './cli/parse-inputs.js';
 import { formatCompareReport } from './cli/compare-report.js';
@@ -393,7 +394,7 @@ async function handleCompose(): Promise<void> {
 
   const provider = autoProvider(getArgValue('--provider') || process.env.AO_PROVIDER, 'deepseek') as LLMConfig['provider'];
   const cliProviders = ['claude-code', 'gemini-cli', 'copilot-cli', 'codex-cli', 'openclaw-cli', 'hermes-cli'];
-  const knownApiProviders = ['deepseek', 'claude', 'openai', 'ollama', 'agnes', 'apinebula', 'compshare'];
+  const knownApiProviders = ['claude', 'ollama', ...API_PROVIDERS.map((p) => p.id)];
   const isUnknownProvider = !cliProviders.includes(provider) && !knownApiProviders.includes(provider);
   const cliModel = getArgValue('--model') || process.env.AO_MODEL;
   // 未知 provider（如 zhipu/qwen/moonshot 走 openai-compatible）必须显式指定 model，
@@ -404,10 +405,8 @@ async function handleCompose(): Promise<void> {
   }
   const model = cliModel || (
     cliProviders.includes(provider) ? '' :
-    provider === 'deepseek' ? 'deepseek-chat' :
     provider === 'claude' ? 'claude-sonnet-4-20250514' :
-    provider === 'agnes' ? 'agnes-2.0-flash' :
-    'gpt-4o'
+    API_PROVIDER_MAP[provider]?.defaultModel || 'gpt-4o'
   );
   const baseUrl = getArgValue('--base-url') || getArgValue('--baseurl');
   const apiKey = getArgValue('--api-key') || getArgValue('--apikey');
@@ -588,11 +587,8 @@ function resolveProviderModel(teamProvider?: string, teamModel?: string): { prov
   const cliProviders = ['claude-code', 'gemini-cli', 'copilot-cli', 'codex-cli', 'openclaw-cli', 'hermes-cli'];
   const model = getArgValue('--model') || process.env.AO_MODEL || teamModel || (
     cliProviders.includes(provider) ? '' :
-    provider === 'deepseek' ? 'deepseek-chat' :
     provider === 'claude' ? 'claude-sonnet-4-20250514' :
-    provider === 'openai' ? 'gpt-4o' :
-    provider === 'agnes' ? 'agnes-2.0-flash' :
-    ''
+    API_PROVIDER_MAP[provider]?.defaultModel || ''
   );
   return { provider, model };
 }
@@ -820,10 +816,8 @@ async function handlePrompt(): Promise<void> {
   const provider = autoProvider(getArgValue('--provider') || process.env.AO_PROVIDER, 'deepseek') as LLMConfig['provider'];
   const model = getArgValue('--model') || process.env.AO_MODEL || (
     cliProviders.includes(provider) ? '' :
-    provider === 'deepseek' ? 'deepseek-chat' :
     provider === 'claude' ? 'claude-sonnet-4-20250514' :
-    provider === 'openai' ? 'gpt-4o' :
-    provider === 'agnes' ? 'agnes-2.0-flash' : ''
+    API_PROVIDER_MAP[provider]?.defaultModel || ''
   );
 
   try {
@@ -1044,11 +1038,7 @@ async function handleInit(): Promise<void> {
       const p = (cfgProvider || '').toLowerCase();
       const urlVar =
         p === 'ollama' ? 'OLLAMA_BASE_URL' :
-        p === 'deepseek' ? 'DEEPSEEK_BASE_URL' :
-        p === 'compshare' ? 'COMPSHARE_BASE_URL' :
-        p === 'apinebula' ? 'APINEBULA_BASE_URL' :
-        p === 'agnes' ? 'AGNES_BASE_URL' :
-        'OPENAI_BASE_URL';
+        API_PROVIDER_MAP[p]?.envBase || 'OPENAI_BASE_URL';
       updates[urlVar] = cfgBaseUrl;
     }
     if (cfgApiKey) {
@@ -1058,12 +1048,8 @@ async function handleInit(): Promise<void> {
       // 所以未知 provider 的 key 也写到 OPENAI_API_KEY，不再写死代码的 AO_API_KEY / ZHIPU_API_KEY。
       const p = (cfgProvider || process.env.AO_PROVIDER || '').toLowerCase();
       const keyVar =
-        p === 'deepseek' ? 'DEEPSEEK_API_KEY' :
         p === 'anthropic' || p === 'claude' ? 'ANTHROPIC_API_KEY' :
-        p === 'compshare' ? 'COMPSHARE_API_KEY' :
-        p === 'apinebula' ? 'APINEBULA_API_KEY' :
-        p === 'agnes' ? 'AGNES_API_KEY' :
-        'OPENAI_API_KEY';
+        API_PROVIDER_MAP[p]?.envKey || 'OPENAI_API_KEY';
       updates[keyVar] = cfgApiKey;
     }
 

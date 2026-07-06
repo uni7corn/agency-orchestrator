@@ -1,31 +1,15 @@
-import { Check, Cloud, Eye, EyeOff, Loader2, MonitorCog, Plug, Sparkles, Terminal, XCircle } from "lucide-react";
+import { Check, ChevronDown, Cloud, Eye, EyeOff, Loader2, MonitorCog, Plug, Plus, Sparkles, Terminal, Trash2, TriangleAlert, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { api, DEFAULT_PROVIDER, PROVIDER_LABELS, type ConfigResponse } from "@/lib/studio";
+import { api, API_PROVIDERS, CLI_RELAY_GLOBAL_WRITE, CLI_RELAY_SUPPORT, DEFAULT_PROVIDER, PROVIDER_LABELS, type ApiProviderMeta, type ConfigResponse } from "@/lib/studio";
 import { cn } from "@/lib/utils";
+import { CustomProviderModal } from "./CustomProviderModal";
 
-type ApiMeta = { id: string; name: string; hint: string; flagship?: boolean; sponsor?: boolean };
-
-const API_META: ApiMeta[] = [
-  // 旗舰赞助商 APINEBULA —— 置顶 + 金色高亮（大屏特有）
-  { id: "apinebula", name: "APINEBULA", hint: "apinebula.com", flagship: true },
-  // 普通赞助商 CompShare —— 次于旗舰，中性「赞助商」标记
-  { id: "compshare", name: "CompShare", hint: "console.compshare.cn", sponsor: true },
-  { id: "agnes", name: "Agnes AI", hint: "agnes-2.0-flash · agnes-ai.com" },
-  { id: "deepseek", name: "DeepSeek", hint: "platform.deepseek.com" },
-  { id: "openai", name: "OpenAI", hint: "gpt-4o {etc} · platform.openai.com" },
-  { id: "claude", name: "Claude (Anthropic)", hint: "console.anthropic.com" },
-];
-
-// 每个 provider 的常用模型建议：下拉可选，也仍可手填(datalist)。避免用户必须凭记忆敲。
+// provider 列表/模型建议的唯一来源是 lib/studio.ts 的 API_PROVIDERS —— 新增一家 provider 只用改那一处。
+const API_META = API_PROVIDERS;
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
-  agnes: ["agnes-2.0-flash", "agnes-1.5-flash"],
-  deepseek: ["deepseek-chat", "deepseek-reasoner"],
-  openai: ["gpt-4o", "gpt-4o-mini", "o1", "o3-mini", "gpt-4.1"],
-  claude: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022"],
-  apinebula: ["gpt-5.5", "claude-opus-4", "gemini-2.5-pro", "deepseek-chat"],
-  compshare: ["deepseek-ai/DeepSeek-R1", "deepseek-ai/DeepSeek-V3"],
+  ...Object.fromEntries(API_PROVIDERS.map((p) => [p.id, p.modelSuggestions ?? []])),
   ollama: ["llama3", "qwen2.5", "qwen2.5:14b", "deepseek-r1"],
 };
 
@@ -87,12 +71,15 @@ function ApiCard({
   active,
   onSetActive,
   onChanged,
+  onDelete,
 }: {
   meta: (typeof API_META)[number];
   status?: ConfigResponse["providers"][string];
   active: boolean;
   onSetActive: () => void;
   onChanged: () => void;
+  /** 只有自定义供应商才传：删除整条（元数据 + 已存的 key），跟"清空 key"不是一回事。 */
+  onDelete?: () => void;
 }) {
   const { t } = useLanguage();
   const [key, setKey] = useState("");
@@ -129,12 +116,14 @@ function ApiCard({
     }
   };
 
-  // 赞助商 CompShare / APINEBULA 的名称/说明走 i18n（英文站不露中文）；其余 provider 是品牌名+URL，语言无关
+  // 赞助商 CompShare / APINEBULA / RootFlowAI 的名称/说明走 i18n（英文站不露中文）；其余 provider 是品牌名+URL，语言无关
   const displayName = meta.id === "compshare" ? t.studio.providers.compshareName
     : meta.id === "apinebula" ? t.studio.providers.apinebulaName
+    : meta.id === "rootflowai" ? t.studio.providers.rootflowaiName
     : meta.name;
   const displayHint = meta.id === "compshare" ? t.studio.providers.compshareHint
     : meta.id === "apinebula" ? t.studio.providers.apinebulaHint
+    : meta.id === "rootflowai" ? t.studio.providers.rootflowaiHint
     : meta.hint.replace("{etc}", t.studio.providers.etc);
 
   return (
@@ -217,7 +206,132 @@ function ApiCard({
       <div className="mt-3 flex items-center gap-3">
         <TestRow provider={meta.id} enabled={!!status?.hasKey} />
         {status?.hasKey && !status.fromEnv && (
-          <button onClick={clear} className="ml-auto text-xs text-muted-foreground hover:text-red-500">
+          <button onClick={clear} className={cn("text-xs text-muted-foreground hover:text-red-500", !onDelete && "ml-auto")}>
+            {t.studio.providers.clear}
+          </button>
+        )}
+        {onDelete && (
+          <button
+            onClick={() => { if (window.confirm(t.studio.providers.customProviderDeleteConfirm)) onDelete(); }}
+            className="ml-auto text-muted-foreground hover:text-red-500"
+            title={t.studio.providers.customProviderDeleteConfirm}
+          >
+            <Trash2 className="size-3.5" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * claude-code / gemini-cli / codex-cli 卡片里的可选"自定义中转"折叠区。这些官方 CLI
+ * 都支持把请求指向第三方中转服务（如 Cubence），不登录官方账号也能用 —— 但需要先自己
+ * 装好 CLI 本身（中转只是换了请求目的地，不代替 CLI 安装）。
+ * codex-cli 特殊：没有环境变量覆盖，只能写用户 home 目录下的 ~/.codex/config.toml +
+ * auth.json（全局生效，会影响 AO 之外直接用 codex 命令行的行为），保存前会有明确提示。
+ */
+function CliRelayFields({ providerId, status, onChanged }: { providerId: string; status?: ConfigResponse["providers"][string]; onChanged: () => void }) {
+  const { t } = useLanguage();
+  const isGlobalWrite = CLI_RELAY_GLOBAL_WRITE.has(providerId);
+  const [open, setOpen] = useState(false);
+  const [baseUrl, setBaseUrl] = useState(status?.baseUrl ?? "");
+  const [token, setToken] = useState("");
+  const [show, setShow] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [backups, setBackups] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    setBaseUrl(status?.baseUrl ?? "");
+  }, [status?.baseUrl]);
+
+  const save = async () => {
+    if (isGlobalWrite && !window.confirm(t.studio.providers.cliRelayGlobalConfirm)) return;
+    setSaving(true);
+    try {
+      const r = await api.saveConfig({ provider: providerId, apiKey: token, baseUrl });
+      setToken("");
+      setBackups(r.backups && r.backups.length > 0 ? r.backups : null);
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  };
+  const clear = async () => {
+    setSaving(true);
+    try {
+      await api.saveConfig({ provider: providerId, apiKey: "" });
+      setToken("");
+      setBaseUrl("");
+      setBackups(null);
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open && !status?.hasKey) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-2 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+      >
+        <ChevronDown className="size-3" /> {t.studio.providers.cliRelayToggle}
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 border-t border-border/60 pt-2" onClick={(e) => e.stopPropagation()}>
+      <p className="text-[11px] text-muted-foreground">
+        {status?.hasKey ? (
+          <span className="text-emerald-500">{t.studio.providers.cliRelaySet}</span>
+        ) : (
+          t.studio.providers.cliRelayHint
+        )}
+      </p>
+      {isGlobalWrite && (
+        <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-400">
+          <TriangleAlert className="mt-0.5 size-3 shrink-0" /> {t.studio.providers.cliRelayGlobalWarning}
+        </p>
+      )}
+      {backups && (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          {t.studio.providers.cliRelayBackedUp} {backups.map((b) => b.split("/").pop()).join(", ")}
+        </p>
+      )}
+      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+        <input
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder={t.studio.providers.cliRelayBaseUrlPlaceholder}
+          className="h-8 rounded-lg border border-border/70 bg-background px-2 text-xs outline-none focus:border-primary/50"
+        />
+        <div className="relative">
+          <input
+            type={show ? "text" : "password"}
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder={t.studio.providers.cliRelayTokenPlaceholder}
+            className="h-8 w-full rounded-lg border border-border/70 bg-background px-2 pr-7 font-mono text-xs outline-none focus:border-primary/50"
+          />
+          <button type="button" onClick={() => setShow((v) => !v)} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+            {show ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
+          </button>
+        </div>
+      </div>
+      <div className="mt-1.5 flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={save}
+          disabled={saving || (!token.trim() && baseUrl === (status?.baseUrl ?? ""))}
+        >
+          {saving ? <Loader2 className="size-3.5 animate-spin" /> : t.studio.providers.save}
+        </Button>
+        {status?.hasKey && (
+          <button onClick={clear} className="text-xs text-muted-foreground hover:text-red-500">
             {t.studio.providers.clear}
           </button>
         )}
@@ -274,6 +388,7 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
   const { t } = useLanguage();
   const [cfg, setCfg] = useState<ConfigResponse | null>(null);
   const [failed, setFailed] = useState(false);
+  const [showAddCustom, setShowAddCustom] = useState(false);
   const load = () => {
     setFailed(false);
     // 演示站没有引擎后端：config 拉不到时退回空配置，照样展示供应商卡片（可看、可填，只是无法实际运行 / 测试），不再弹「加载失败」
@@ -329,6 +444,36 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
           </section>
 
           <section>
+            <h3 className="mb-3 flex items-center justify-between gap-2 text-sm font-bold">
+              <span className="flex items-center gap-2">
+                <Plus className="size-4 text-primary" /> {t.studio.providers.customProvidersTitle}{" "}
+                <span className="font-normal text-muted-foreground">· {t.studio.providers.customProvidersHint}</span>
+              </span>
+              <Button size="sm" variant="outline" onClick={() => setShowAddCustom(true)}>
+                <Plus className="size-3.5" /> {t.studio.providers.addCustomProvider}
+              </Button>
+            </h3>
+            {(cfg.customProviders ?? []).length > 0 && (
+              <div className="grid gap-4 lg:grid-cols-2">
+                {(cfg.customProviders ?? []).map((cp) => (
+                  <ApiCard
+                    key={cp.id}
+                    meta={{ id: cp.id, name: cp.name, hint: cp.homepageUrl || cp.note || "" }}
+                    status={cfg.providers[cp.id]}
+                    active={eff === cp.id}
+                    onSetActive={() => onSetActive(cp.id)}
+                    onChanged={load}
+                    onDelete={async () => {
+                      await api.deleteCustomProvider(cp.id);
+                      load();
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section>
             <h3 className="mb-3 flex items-center gap-2 text-sm font-bold">
               <MonitorCog className="size-4 text-emerald-500" /> {t.studio.providers.localModelTitle} <span className="font-normal text-muted-foreground">· {t.studio.providers.localModelHint}</span>
             </h3>
@@ -341,20 +486,27 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
             </h3>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {cliItems.map(({ name: id, installed }) => (
-                <div key={id} className={cn("flex items-center justify-between rounded-2xl border bg-card/60 px-4 py-3", installed ? "border-emerald-500/50" : eff === id ? "border-primary/60" : "border-border/70")}>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{PROVIDER_LABELS[id] ?? id}</span>
-                    <span className={cn("block truncate text-[11px]", installed ? "font-medium text-emerald-500" : "text-muted-foreground")}>
-                      {installed ? t.studio.providers.cliInstalledBadge : t.studio.providers.cliRequirement}
+                <div key={id} className={cn("rounded-2xl border bg-card/60 px-4 py-3", installed ? "border-emerald-500/50" : eff === id ? "border-primary/60" : "border-border/70")}>
+                  <div className="flex items-center justify-between">
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">{PROVIDER_LABELS[id] ?? id}</span>
+                      <span className={cn("block truncate text-[11px]", installed ? "font-medium text-emerald-500" : "text-muted-foreground")}>
+                        {installed ? t.studio.providers.cliInstalledBadge : t.studio.providers.cliRequirement}
+                      </span>
                     </span>
-                  </span>
-                  <ActiveButton on={eff === id} onClick={() => onSetActive(id)} />
+                    <ActiveButton on={eff === id} onClick={() => onSetActive(id)} />
+                  </div>
+                  {CLI_RELAY_SUPPORT.has(id) && (
+                    <CliRelayFields providerId={id} status={cfg.providers[id]} onChanged={load} />
+                  )}
                 </div>
               ))}
             </div>
           </section>
         </>
       )}
+
+      {showAddCustom && <CustomProviderModal onClose={() => setShowAddCustom(false)} onCreated={load} />}
     </div>
   );
 }
