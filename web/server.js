@@ -1276,12 +1276,14 @@ app.delete('/api/custom-providers/:id', (req, res) => {
 
 // ── Test a provider's key with a minimal real API call ──
 app.post('/api/test-provider', async (req, res) => {
-  const { provider } = req.body || {};
+  // apiKey/baseUrl/model 可由请求带入覆盖:配置页"填了就能测",不用先保存
+  const { provider, apiKey: overrideKey, baseUrl: overrideBase, model: overrideModel } = req.body || {};
   await getRemoteManifest();
   const isCustomProvider = readCustomProviders(CUSTOM_PROVIDERS_FILE).some((p) => p.id === provider) || !!remoteProviderSpec(provider);
   if (!provider || (!KEY_ENV[provider] && provider !== 'ollama' && !isCustomProvider)) return res.status(400).json({ ok: false, error: 'unknown provider' });
   // 自定义供应商没有专属 env 变量名，key 只存在 saved[provider].apiKey 里。
-  const key = provider === 'ollama' ? 'n/a' : (KEY_ENV[provider] ? process.env[KEY_ENV[provider].key] : readKeys()[provider]?.apiKey);
+  const key = provider === 'ollama' ? 'n/a'
+    : ((typeof overrideKey === 'string' && overrideKey.trim()) || (KEY_ENV[provider] ? process.env[KEY_ENV[provider].key] : readKeys()[provider]?.apiKey));
   if (!key) return res.json({ ok: false, error: '未设置 API key' });
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12000);
@@ -1309,8 +1311,8 @@ app.post('/api/test-provider', async (req, res) => {
       const saved = readKeys()[provider] || {};
       const spec = API_PROVIDER_MAP[provider];
       const remote = remoteProviderSpec(provider);
-      const base = (saved.baseUrl || (spec && process.env[spec.envBase]) || spec?.defaultBaseUrl || remote?.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
-      const model = saved.model || spec?.defaultModel || remote?.defaultModel || 'gpt-4o-mini';
+      const base = ((typeof overrideBase === 'string' && overrideBase.trim()) || saved.baseUrl || (spec && process.env[spec.envBase]) || spec?.defaultBaseUrl || remote?.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
+      const model = (typeof overrideModel === 'string' && overrideModel.trim()) || saved.model || spec?.defaultModel || remote?.defaultModel || 'gpt-4o-mini';
       r = await fetch(`${base}/chat/completions`, {
         method: 'POST', signal: ctrl.signal,
         headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },

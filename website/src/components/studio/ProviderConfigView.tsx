@@ -84,6 +84,11 @@ export function ProviderConfigView({
   // claude 走原生 SDK,不支持自定义 base_url(后端 KEY_ENV base: null),隐藏该输入
   const supportsBaseUrl = target.kind === "api" ? status?.supportsBaseUrl !== false : true;
   const hintIsUrl = target.kind === "api" && !!target.hint && /^https?:\/\//.test(target.hint);
+  // 注册直跳(右上角):API 类赞助商用自己的推广链接;中转配置页在选中某家中转商端点时用它的
+  const registerUrl =
+    target.kind === "api" ? target.signupUrl
+    : isRelay ? relayPresets.find((r) => r.signupUrl && r.baseUrls[providerId] === baseUrl)?.signupUrl
+    : undefined;
 
   const applyPreset = (preset: (typeof CUSTOM_PROVIDER_PRESETS)[number]) => {
     setCustomName(preset.name);
@@ -115,7 +120,12 @@ export function ProviderConfigView({
   const runTest = async () => {
     setTest({ status: "testing" });
     try {
-      const r = await api.testProvider(providerId);
+      // 带上当前输入框里的值:填了就能测,不用先保存
+      const r = await api.testProvider(providerId, {
+        apiKey: key.trim() || undefined,
+        baseUrl: baseUrl.trim() || undefined,
+        model: model.trim() || undefined,
+      });
       setTest(r.ok ? { status: "ok", msg: r.note || `${r.latencyMs}ms` } : { status: "fail", msg: r.error });
     } catch (e: any) {
       setTest({ status: "fail", msg: e?.message });
@@ -198,7 +208,7 @@ export function ProviderConfigView({
           <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary/80 to-fuchsia-500/80 text-sm font-bold text-white">
             {avatarChar}
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h2 className="truncate text-base font-bold leading-tight">{isAdd ? p.addCustomProvider : `${p.editProviderTitle} · ${displayTitle}`}</h2>
             {target.kind === "api" && target.hint && (
               hintIsUrl ? (
@@ -210,6 +220,17 @@ export function ProviderConfigView({
               )
             )}
           </div>
+          {/* 右上角注册直跳:没 key 的用户最需要的入口 */}
+          {registerUrl && (
+            <a
+              href={registerUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex shrink-0 items-center gap-1 rounded-xl bg-gold px-3 py-2 text-xs font-semibold text-gold-foreground transition-opacity hover:opacity-90"
+            >
+              {p.registerCta} <ExternalLink className="size-3" />
+            </a>
+          )}
         </div>
       </div>
 
@@ -365,32 +386,10 @@ export function ProviderConfigView({
             )}
             {!isOllama && (
               <div>
-                <div className="mb-1 flex items-center justify-between">
-                  <label className={labelCls + " mb-0"}>
-                    {isRelay ? p.cliRelayTokenPlaceholder : "API Key"}
-                    {status?.hasKey && <span className="ml-2 text-emerald-500">{p.keySet}{status.fromEnv ? p.fromEnv : ""}</span>}
-                  </label>
-                  {/* 赞助商注册直跳:没 key 的用户从这里一键到注册页领 key */}
-                  {(target.kind === "api" && target.signupUrl) ? (
-                    <a
-                      href={target.signupUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 rounded-lg bg-gold px-2.5 py-1 text-xs font-semibold text-gold-foreground transition-opacity hover:opacity-90"
-                    >
-                      {p.registerCta} <ExternalLink className="size-3" />
-                    </a>
-                  ) : isRelay && relayPresets.find((r) => r.signupUrl && r.baseUrls[providerId] === baseUrl) ? (
-                    <a
-                      href={relayPresets.find((r) => r.signupUrl && r.baseUrls[providerId] === baseUrl)!.signupUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 rounded-lg bg-gold px-2.5 py-1 text-xs font-semibold text-gold-foreground transition-opacity hover:opacity-90"
-                    >
-                      {p.registerCta} <ExternalLink className="size-3" />
-                    </a>
-                  ) : null}
-                </div>
+                <label className={labelCls}>
+                  {isRelay ? p.cliRelayTokenPlaceholder : "API Key"}
+                  {status?.hasKey && <span className="ml-2 text-emerald-500">{p.keySet}{status.fromEnv ? p.fromEnv : ""}</span>}
+                </label>
                 <div className="relative">
                   <input
                     type={show ? "text" : "password"}
@@ -462,8 +461,9 @@ export function ProviderConfigView({
               {saving ? <Loader2 className="size-4 animate-spin" /> : isAdd ? <Plus className="size-4" /> : null}
               {isAdd ? p.customProviderSubmit : p.save}
             </Button>
-            {!isAdd && (
-              <Button size="sm" variant="outline" onClick={runTest} disabled={test.status === "testing" || (!isOllama && !status?.hasKey)}>
+            {/* 中转不显示测试:claude-code/gemini 中转走各自 CLI 的原生协议,用 OpenAI 格式去测会误报失败 */}
+            {!isAdd && !isRelay && (
+              <Button size="sm" variant="outline" onClick={runTest} disabled={test.status === "testing"}>
                 {test.status === "testing" ? <Loader2 className="size-3.5 animate-spin" /> : <Plug className="size-3.5" />}
                 {p.testConnection}
               </Button>

@@ -374,8 +374,9 @@ export const api = {
   saveConfig: (body: { provider: string; apiKey?: string; baseUrl?: string; model?: string }) =>
     // backups 只有 codex-cli 这条中转会带（写了 ~/.codex 前自动备份的原文件路径）
     postJSON<{ ok: boolean; backups?: string[] }>("/config", body),
-  testProvider: (provider: string) =>
-    postJSON<{ ok: boolean; latencyMs?: number; error?: string; note?: string }>("/test-provider", { provider }),
+  // apiKey/baseUrl/model 可选覆盖:配置页里"填了就能测",不用先保存
+  testProvider: (provider: string, overrides?: { apiKey?: string; baseUrl?: string; model?: string }) =>
+    postJSON<{ ok: boolean; latencyMs?: number; error?: string; note?: string }>("/test-provider", { provider, ...overrides }),
   createCustomProvider: (body: { id: string; name: string; note?: string; homepageUrl?: string; baseUrl: string; apiKey?: string; model?: string }) =>
     postJSON<{ ok: boolean }>("/custom-providers", body),
   // 拉取供应商真实可用模型列表（OpenAI 兼容 GET /models）；baseUrl/apiKey 可覆盖（未保存时先试拉）
