@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
  * 分区成卡片,底部固定操作栏。
  */
 export type ConfigTarget =
-  | { kind: "api"; id: string; name: string; hint?: string; defaultBaseUrl?: string; suggestions?: string[]; isCustom?: boolean; customMeta?: { note?: string; homepageUrl?: string } }
+  | { kind: "api"; id: string; name: string; hint?: string; defaultBaseUrl?: string; suggestions?: string[]; isCustom?: boolean; customMeta?: { note?: string; homepageUrl?: string }; signupUrl?: string }
   // initialBaseUrl：从主列表的中转商行进来时预填该中转商的端点
   | { kind: "cli-relay"; id: string; name: string; globalWrite?: boolean; initialBaseUrl?: string }
   | { kind: "ollama" }
@@ -365,10 +365,32 @@ export function ProviderConfigView({
             )}
             {!isOllama && (
               <div>
-                <label className={labelCls}>
-                  {isRelay ? p.cliRelayTokenPlaceholder : "API Key"}
-                  {status?.hasKey && <span className="ml-2 text-emerald-500">{p.keySet}{status.fromEnv ? p.fromEnv : ""}</span>}
-                </label>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className={labelCls + " mb-0"}>
+                    {isRelay ? p.cliRelayTokenPlaceholder : "API Key"}
+                    {status?.hasKey && <span className="ml-2 text-emerald-500">{p.keySet}{status.fromEnv ? p.fromEnv : ""}</span>}
+                  </label>
+                  {/* 赞助商注册直跳:没 key 的用户从这里一键到注册页领 key */}
+                  {(target.kind === "api" && target.signupUrl) ? (
+                    <a
+                      href={target.signupUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 rounded-lg bg-gold px-2.5 py-1 text-xs font-semibold text-gold-foreground transition-opacity hover:opacity-90"
+                    >
+                      {p.registerCta} <ExternalLink className="size-3" />
+                    </a>
+                  ) : isRelay && relayPresets.find((r) => r.signupUrl && r.baseUrls[providerId] === baseUrl) ? (
+                    <a
+                      href={relayPresets.find((r) => r.signupUrl && r.baseUrls[providerId] === baseUrl)!.signupUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 rounded-lg bg-gold px-2.5 py-1 text-xs font-semibold text-gold-foreground transition-opacity hover:opacity-90"
+                    >
+                      {p.registerCta} <ExternalLink className="size-3" />
+                    </a>
+                  ) : null}
+                </div>
                 <div className="relative">
                   <input
                     type={show ? "text" : "password"}

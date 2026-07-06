@@ -1,4 +1,4 @@
-import { Check, Cloud, Loader2, MonitorCog, Plus, Settings2, Sparkles, Terminal, Trash2 } from "lucide-react";
+import { Check, Cloud, ExternalLink, Loader2, MonitorCog, Plus, Settings2, Sparkles, Terminal, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/i18n/LanguageProvider";
@@ -64,8 +64,8 @@ function ProviderRow({
             </span>
           )}
           {sponsor && (
-            <span className="inline-flex shrink-0 items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-              {t.studio.providers.sponsorTag}
+            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-gold/15 px-1.5 py-0.5 text-[10px] font-semibold text-gold">
+              <Sparkles className="size-2.5" /> {t.studio.providers.sponsorTag}
             </span>
           )}
         </span>
@@ -185,7 +185,7 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
                     sponsor={m.sponsor}
                     active={eff === m.id}
                     onSetActive={() => onSetActive(m.id)}
-                    onEdit={() => setEditing({ kind: "api", id: m.id, name: displayName(m.id, m.name), hint: displayHint(m.id, m.hint), defaultBaseUrl: m.defaultBaseUrl, suggestions: m.modelSuggestions })}
+                    onEdit={() => setEditing({ kind: "api", id: m.id, name: displayName(m.id, m.name), hint: displayHint(m.id, m.hint), defaultBaseUrl: m.defaultBaseUrl, suggestions: m.modelSuggestions, signupUrl: m.signupUrl })}
                   />
                 );
               })}
@@ -201,7 +201,7 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
                     sponsor={m.sponsor}
                     active={eff === m.id}
                     onSetActive={() => onSetActive(m.id)}
-                    onEdit={() => setEditing({ kind: "api", id: m.id, name: m.name, hint: m.note || m.homepageUrl, defaultBaseUrl: m.baseUrl, suggestions: m.modelSuggestions })}
+                    onEdit={() => setEditing({ kind: "api", id: m.id, name: m.name, hint: m.note || m.homepageUrl, defaultBaseUrl: m.baseUrl, suggestions: m.modelSuggestions, signupUrl: m.signupUrl })}
                   />
                 );
               })}
@@ -269,14 +269,21 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
                     <span className="flex items-center gap-1.5">
                       <span className="truncate text-sm font-semibold">{r.name}</span>
                       {r.sponsor && (
-                        <span className="inline-flex shrink-0 items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                          {t.studio.providers.sponsorTag}
+                        <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-gold/15 px-1.5 py-0.5 text-[10px] font-semibold text-gold">
+                          <Sparkles className="size-2.5" /> {t.studio.providers.sponsorTag}
                         </span>
                       )}
                     </span>
                     <span className="block truncate text-[11px] text-muted-foreground">{t.studio.providers.cliRelayVendorLine}</span>
                   </span>
                   <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                    {r.signupUrl && (
+                      <Button size="sm" asChild>
+                        <a href={r.signupUrl} target="_blank" rel="noreferrer">
+                          {t.studio.providers.registerCta} <ExternalLink className="size-3" />
+                        </a>
+                      </Button>
+                    )}
                     {Object.keys(r.baseUrls).map((cliId) => (
                       <Button
                         key={cliId}

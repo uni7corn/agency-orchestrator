@@ -150,15 +150,25 @@ async function getRemoteManifest() {
     if (r.ok) {
       const j = await r.json();
       const idRe = /^[a-z][a-z0-9-]{1,30}$/;
+      const httpsStr = (v) => (typeof v === 'string' && /^https:\/\//.test(v) ? v : undefined);
       const providers = (Array.isArray(j?.providers) ? j.providers : []).filter((p) =>
         p && typeof p.id === 'string' && idRe.test(p.id) && !KEY_ENV[p.id] && p.id !== 'ollama' &&
         typeof p.name === 'string' && p.name.trim() &&
         typeof p.baseUrl === 'string' && /^https:\/\//.test(p.baseUrl)
-      );
+      ).map((p) => ({
+        // 字段白名单:清单是远程内容,只透传认识的字段,链接类一律要求 https
+        id: p.id, name: p.name.trim(), baseUrl: p.baseUrl,
+        note: typeof p.note === 'string' ? p.note : undefined,
+        homepageUrl: httpsStr(p.homepageUrl),
+        signupUrl: httpsStr(p.signupUrl),
+        defaultModel: typeof p.defaultModel === 'string' ? p.defaultModel : undefined,
+        modelSuggestions: Array.isArray(p.modelSuggestions) ? p.modelSuggestions.filter((m) => typeof m === 'string') : undefined,
+        sponsor: !!p.sponsor,
+      }));
       const relayPresets = (Array.isArray(j?.relayPresets) ? j.relayPresets : []).filter((r2) =>
         r2 && typeof r2.name === 'string' && r2.baseUrls && typeof r2.baseUrls === 'object' &&
         Object.values(r2.baseUrls).every((u) => typeof u === 'string' && /^https:\/\//.test(u))
-      );
+      ).map((r2) => ({ name: r2.name, sponsor: !!r2.sponsor, signupUrl: httpsStr(r2.signupUrl), baseUrls: r2.baseUrls }));
       const removedProviders = (Array.isArray(j?.removedProviders) ? j.removedProviders : []).filter((x) => typeof x === 'string');
       manifestCache = { data: { providers, relayPresets, removedProviders }, fetchedAt: now };
       return manifestCache.data;

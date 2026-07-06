@@ -251,6 +251,7 @@ export interface RemoteProviderMeta {
   defaultModel?: string;
   modelSuggestions?: string[];
   sponsor?: boolean;
+  signupUrl?: string;
 }
 
 export interface ConfigResponse {
@@ -513,6 +514,8 @@ export interface ApiProviderMeta {
   hint: string;
   /** 默认接入点（展示用,和后端 src/connectors/api-providers.ts 保持一致）——留空 base_url 时实际用的就是它 */
   defaultBaseUrl?: string;
+  /** 注册/领取 key 的直达链接（赞助商带推广参数） */
+  signupUrl?: string;
   flagship?: boolean;
   sponsor?: boolean;
   modelSuggestions?: string[];
@@ -520,11 +523,11 @@ export interface ApiProviderMeta {
 
 export const API_PROVIDERS: ApiProviderMeta[] = [
   // 旗舰赞助商 APINEBULA —— 置顶 + 金色高亮（大屏特有）
-  { id: "apinebula", name: "APINEBULA", hint: "apinebula.com", defaultBaseUrl: "https://apinebula.com/v1", flagship: true, modelSuggestions: ["gpt-5.5", "claude-opus-4", "gemini-2.5-pro", "deepseek-chat"] },
+  { id: "apinebula", name: "APINEBULA", hint: "apinebula.com", defaultBaseUrl: "https://apinebula.com/v1", signupUrl: "https://apinebula.com/V6ekjG", flagship: true, modelSuggestions: ["gpt-5.5", "claude-opus-4", "gemini-2.5-pro", "deepseek-chat"] },
   // 普通赞助商 CompShare —— 次于旗舰，中性「赞助商」标记
-  { id: "compshare", name: "CompShare", hint: "console.compshare.cn", defaultBaseUrl: "https://api.modelverse.cn/v1", sponsor: true, modelSuggestions: ["deepseek-ai/DeepSeek-R1", "deepseek-ai/DeepSeek-V3"] },
+  { id: "compshare", name: "CompShare", hint: "console.compshare.cn", defaultBaseUrl: "https://api.modelverse.cn/v1", signupUrl: "https://passport.compshare.cn/register?referral_code=ETD3L5JBM13CtKARkMORot&ytag=GPU_YY_YX_git_agency-agents", sponsor: true, modelSuggestions: ["deepseek-ai/DeepSeek-R1", "deepseek-ai/DeepSeek-V3"] },
   // 普通赞助商 RootFlowAI —— 前 3 位，紧跟两家旗舰/赞助商之后
-  { id: "rootflowai", name: "RootFlowAI", hint: "rootflowai.com", defaultBaseUrl: "https://api.rootflowai.com/v1", sponsor: true, modelSuggestions: ["claude-sonnet-4-6", "claude-opus-4-7", "gpt-5.5", "gemini-3.1-pro-preview"] },
+  { id: "rootflowai", name: "RootFlowAI", hint: "rootflowai.com", defaultBaseUrl: "https://api.rootflowai.com/v1", signupUrl: "https://rootflowai.com/register?utm_source=agency-agents-zh&utm_medium=sponsor&utm_campaign=studio", sponsor: true, modelSuggestions: ["claude-sonnet-4-6", "claude-opus-4-7", "gpt-5.5", "gemini-3.1-pro-preview"] },
   { id: "deepseek", name: "DeepSeek", hint: "platform.deepseek.com", defaultBaseUrl: "https://api.deepseek.com/v1", modelSuggestions: ["deepseek-chat", "deepseek-reasoner"] },
   { id: "claude", name: "Claude (Anthropic)", shortName: "Claude", hint: "console.anthropic.com", defaultBaseUrl: "https://api.anthropic.com/v1", modelSuggestions: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022"] },
   { id: "openai", name: "OpenAI", hint: "gpt-4o {etc} · platform.openai.com", defaultBaseUrl: "https://api.openai.com/v1", modelSuggestions: ["gpt-4o", "gpt-4o-mini", "o1", "o3-mini", "gpt-4.1"] },
@@ -553,6 +556,8 @@ export const CLI_RELAY_GLOBAL_WRITE = new Set(["codex-cli"]);
 export interface CliRelayPreset {
   name: string;
   sponsor?: boolean;
+  /** 注册/领取 token 的直达链接（赞助商带推广参数） */
+  signupUrl?: string;
   /** provider id → 该 CLI 应填的中转 base_url */
   baseUrls: Record<string, string>;
 }
@@ -563,6 +568,7 @@ export const CLI_RELAY_PRESETS: CliRelayPreset[] = [
   {
     name: "Cubence",
     sponsor: true,
+    signupUrl: "https://cubence.com/signup?code=SCW29JP9&source=agency",
     baseUrls: {
       "claude-code": "https://api.cubence.com",
       "gemini-cli": "https://api.cubence.com",
