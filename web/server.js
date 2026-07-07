@@ -16,6 +16,7 @@ import yaml from 'js-yaml';
 import { detectInstalledCliProviders } from '../dist/providers/detect.js';
 import { API_PROVIDERS, API_PROVIDER_MAP } from '../dist/connectors/api-providers.js';
 import { applyCodexRelay, clearCodexRelay, readCodexRelayStatus } from '../dist/utils/codex-relay.js';
+import { diagnoseClaudeConfig, repairClaudeConfig } from '../dist/utils/claude-repair.js';
 import { validateCustomProviderId, readCustomProviders, addCustomProvider, removeCustomProvider, updateCustomProvider } from '../dist/utils/custom-providers.js';
 
 // Codex 没有环境变量覆盖机制，中转配置写在 ~/.codex/config.toml + auth.json 里，
@@ -84,9 +85,11 @@ function buildLLMConfig(provider) {
   // deepseek/openai/apinebula/agnes/rootflowai 等聚合 API 的默认模型统一在 api-providers.ts
   // 注册,新增一家不用改这里;claude 走原生 SDK,不在那张表里,单独判断;
   // 远程清单上架的赞助商(remoteProviderSpec)默认模型/端点来自清单。
+  // 模型换代时清单的 providerOverrides 优先于内置默认——改官网清单即可全网生效,不用发版。
   const remote = remoteProviderSpec(p);
-  const defModel = p === 'claude' ? 'claude-sonnet-4-20250514'
-    : API_PROVIDER_MAP[p]?.defaultModel || remote?.defaultModel; // ollama / custom: model must come from saved config
+  const override = providerOverrideSpec(p);
+  const defModel = override?.defaultModel
+    || (p === 'claude' ? 'claude-sonnet-5' : API_PROVIDER_MAP[p]?.defaultModel || remote?.defaultModel); // ollama / custom: model must come from saved config
   const model = saved.model || defModel;
   if (model) cfg.model = model;
   const defBase = p === 'ollama' ? (saved.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434') : remote?.baseUrl;
@@ -100,6 +103,18 @@ function buildLLMConfig(provider) {
 }
 const cleanLLMConfig = buildLLMConfig;
 const isAllowedWorkflow = (file) => ALLOWED_WORKFLOW_DIRS.some(d => isInside(file, d));
+
+// R2.2 首跑守卫：compose 要用的 provider 是否已有可用凭证（网页/桌面同后端）。保守——不确定不拦。
+function composeProviderReady(provider) {
+  const p = provider || process.env.AO_PROVIDER || 'apinebula';
+  let saved = {}; try { saved = readKeys()[p] || {}; } catch {}
+  if (saved.apiKey) return true;                                       // 已配 key（含 CLI 中转 / 自定义供应商）
+  if (CLI_PROVIDERS.includes(p)) return detectInstalledCliProviders().includes(p); // 订阅制 CLI 零配置
+  if (p === 'ollama') return true;                                     // 本地免 key
+  const cfg = KEY_ENV[p];
+  if (cfg?.key && process.env[cfg.key]) return true;                  // env 里有 key
+  return false;
+}
 
 // ── API key management (local-only) ──────────────────────────────────────────
 // Keys pasted in the Studio UI are stored in .local/ (gitignored) and injected
@@ -137,7 +152,7 @@ function readKeys() {
 // 安全约束:只接受 https 的 baseUrl,id 不能覆盖内置 provider(防清单被篡改后劫持内置流量)。
 const MANIFEST_URL = process.env.AO_MANIFEST_URL || 'https://ao.aiolaola.com/providers-manifest.json';
 const MANIFEST_TTL = 6 * 60 * 60 * 1000;
-const EMPTY_MANIFEST = { providers: [], relayPresets: [], removedProviders: [] };
+const EMPTY_MANIFEST = { providers: [], relayPresets: [], removedProviders: [], providerOverrides: {} };
 let manifestCache = { data: null, fetchedAt: 0 };
 async function getRemoteManifest() {
   const now = Date.now();
@@ -170,7 +185,22 @@ async function getRemoteManifest() {
         Object.values(r2.baseUrls).every((u) => typeof u === 'string' && /^https:\/\//.test(u))
       ).map((r2) => ({ name: r2.name, sponsor: !!r2.sponsor, signupUrl: httpsStr(r2.signupUrl), baseUrls: r2.baseUrls }));
       const removedProviders = (Array.isArray(j?.removedProviders) ? j.removedProviders : []).filter((x) => typeof x === 'string');
-      manifestCache = { data: { providers, relayPresets, removedProviders }, fetchedAt: now };
+      // providerOverrides：给「内置」provider 换代模型用（defaultModel/modelSuggestions），
+      // 改官网清单即可全网生效,不用发 npm/桌面版。只透传这两个字段,防清单塞进别的东西。
+      const providerOverrides = {};
+      if (j?.providerOverrides && typeof j.providerOverrides === 'object') {
+        for (const [id, ov] of Object.entries(j.providerOverrides)) {
+          if (!idRe.test(id) || !ov || typeof ov !== 'object') continue;
+          const entry = {};
+          if (typeof ov.defaultModel === 'string' && ov.defaultModel.trim()) entry.defaultModel = ov.defaultModel.trim();
+          if (Array.isArray(ov.modelSuggestions)) {
+            const ms = ov.modelSuggestions.filter((m) => typeof m === 'string' && m.trim());
+            if (ms.length) entry.modelSuggestions = ms;
+          }
+          if (Object.keys(entry).length) providerOverrides[id] = entry;
+        }
+      }
+      manifestCache = { data: { providers, relayPresets, removedProviders, providerOverrides }, fetchedAt: now };
       return manifestCache.data;
     }
   } catch { /* 网络失败/超时 → 走下面的短缓存空回退 */ }
@@ -182,17 +212,75 @@ async function getRemoteManifest() {
 function remoteProviderSpec(id) {
   return (manifestCache.data?.providers ?? []).find((p) => p.id === id);
 }
+function providerOverrideSpec(id) {
+  return manifestCache.data?.providerOverrides?.[id];
+}
+
+// ── models.dev 公开模型目录（cc-switch 同款数据源）──────────────────────────
+// https://models.dev —— 开源社区维护的全网大模型目录（api.json，免 key，持续更新）。
+// 用途：模型公司官方 API（claude/openai/deepseek）没配 key、或 /models 拉取失败时,
+// 用它兜底返回当前在售模型列表，避免用户看到打包时的过期静态建议。
+// 聚合商/中转商(apinebula/cubence 等)各家上架模型不同，models.dev 不知道，不适用。
+const MODELS_DEV_URL = process.env.AO_MODELS_DEV_URL || 'https://models.dev/api.json';
+const MODELS_DEV_TTL = 24 * 60 * 60 * 1000;
+// claude-code：中转商拉不到列表时退回 anthropic 官方目录（中转主要就是代理 Claude 系模型）
+const MODELS_DEV_VENDOR = { claude: 'anthropic', 'claude-code': 'anthropic', openai: 'openai', deepseek: 'deepseek' };
+let modelsDevCache = { data: null, fetchedAt: 0 };
+async function modelsDevList(provider) {
+  const vendor = MODELS_DEV_VENDOR[provider];
+  if (!vendor) return null;
+  const now = Date.now();
+  if (!modelsDevCache.data || now - modelsDevCache.fetchedAt > MODELS_DEV_TTL) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 5000);
+      const r = await fetch(MODELS_DEV_URL, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (r.ok) modelsDevCache = { data: await r.json(), fetchedAt: now };
+    } catch { /* 离线/被墙 → 用旧缓存或返回 null */ }
+    // 失败时短缓存 10 分钟，避免离线环境每次请求都白等 5s 超时
+    if (!modelsDevCache.data) { modelsDevCache.fetchedAt = now - MODELS_DEV_TTL + 10 * 60 * 1000; return null; }
+  }
+  const models = modelsDevCache.data?.[vendor]?.models;
+  if (!models || typeof models !== 'object') return null;
+  // 新模型在前（release_date 降序），上限 40 条防下拉过长
+  const list = Object.entries(models)
+    .map(([id, m]) => ({ id, date: typeof m?.release_date === 'string' ? m.release_date : '' }))
+    .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
+    .map((x) => x.id)
+    .slice(0, 40);
+  return list.length ? list : null;
+}
 getRemoteManifest(); // 启动预热,不阻塞
 function writeKeys(obj) {
   mkdirSync(dirname(KEYS_FILE), { recursive: true });
   writeFileSync(KEYS_FILE, JSON.stringify(obj, null, 2), 'utf-8');
 }
+// Claude Code 的模型映射 env（对齐 cc-switch 的成熟做法）：把 CLI 的 Sonnet/Opus/
+// Haiku 档位映射到中转商实际上架的模型名。只影响 AO spawn 出的 CLI 子进程。
+const CC_MODEL_ENVS = {
+  model: 'ANTHROPIC_MODEL',
+  sonnetModel: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  opusModel: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  haikuModel: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+};
 function applyKeys(obj) {
   for (const [provider, cfg] of Object.entries(KEY_ENV)) {
     const entry = obj[provider];
     if (!entry) continue;
     if (entry.apiKey) process.env[cfg.key] = entry.apiKey;
-    if (cfg.base && entry.baseUrl) process.env[cfg.base] = entry.baseUrl;
+    // CLI 中转（claude-code/gemini-cli）：base 必须和 token 成对注入。只存了
+    // baseUrl 没存 token 的半截配置若照样注入 base，CLI 会拿本机登录态去请求
+    // 中转端点 → 全线 401，把原本能用的 CLI 打挂。API 类 provider 不受此限
+    // （key 可能来自 shell 环境变量，base 单独覆盖是合法用法）。
+    const relayCli = provider === 'claude-code' || provider === 'gemini-cli';
+    const hasToken = !!(entry.apiKey || process.env[cfg.key]);
+    if (cfg.base && entry.baseUrl && (!relayCli || hasToken)) process.env[cfg.base] = entry.baseUrl;
+  }
+  for (const [field, envName] of Object.entries(CC_MODEL_ENVS)) {
+    const v = obj['claude-code']?.[field];
+    if (v) process.env[envName] = v;
+    else delete process.env[envName];
   }
   if (obj.ollama?.baseUrl) process.env.OLLAMA_BASE_URL = obj.ollama.baseUrl;
 }
@@ -774,10 +862,75 @@ app.post('/api/run-role', (req, res) => {
   res.on('close', () => { if (!finished && !child.killed) { child.kill('SIGTERM'); try { unlinkSync(tmpFile); } catch {} } });
 });
 
+// ── 对话（不组队）────────────────────────────────────────────────────────
+// 统一的聊天入口：不建团队、不写临时工作流、不产生 ao-output 运行记录——直接用
+// 当前 provider 的 connector 调一轮。可选 role（如 "engineering/engineering-sre"）
+// = 带该角色人设的多轮对话（取代原先一次性的「单独对话」运行）；不带 role = 素模型。
+// connector 接口是单轮的 (system, user)，多轮上下文由前端带来的 messages 在这里
+// 折叠进 userMessage。
+app.post('/api/chat', async (req, res) => {
+  const { messages, provider, lang, role } = req.body || {};
+  if (!Array.isArray(messages) || messages.length === 0) return res.status(400).json({ error: 'messages required' });
+  // 只带最近 20 条、每条截 8k 字符——闲聊场景防历史无限增长撑爆上下文
+  const clean = messages
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+    .slice(-20)
+    .map((m) => ({ role: m.role, content: String(m.content).slice(0, 8000) }));
+  const last = clean[clean.length - 1];
+  if (!last || last.role !== 'user') return res.status(400).json({ error: 'last message must be from user' });
+
+  const en = lang === 'en';
+  let system = en
+    ? 'You are a friendly, knowledgeable AI assistant. Answer directly and concisely — no team building, no role-play. Reply in the language the user writes in.'
+    : '你是一位友好、靠谱的 AI 助手。直接、简洁地回答用户，不需要组建团队或扮演特定角色。用用户使用的语言回复。';
+  if (role && typeof role === 'string') {
+    const agentsDir = agentsDirFor(en ? 'en' : 'zh');
+    const filePath = join(agentsDir, role + '.md');
+    if (!isInside(filePath, agentsDir) || !existsSync(filePath)) return res.status(400).json({ error: `unknown role: ${role}` });
+    const raw = readFileSync(filePath, 'utf-8');
+    const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
+    const body = (fmMatch ? raw.slice(fmMatch[0].length) : raw).trim();
+    // 角色提示词是按"产出一份完整交付物"写的，聊天场景补一句对话姿态，避免每轮都甩全套报告
+    system = body + (en
+      ? '\n\n---\nNote: this is a live multi-turn conversation. Reply in character, directly and concisely — no need to produce a full formatted report each turn.'
+      : '\n\n---\n注意：当前是与用户的实时多轮对话。请以上述角色身份直接、简洁地回复，不必每轮都输出完整报告格式。');
+  }
+  const prior = clean.slice(0, -1);
+  const userLabel = en ? 'User' : '用户';
+  const aiLabel = en ? 'Assistant' : '助手';
+  const userMessage = prior.length
+    ? `${en ? 'Earlier conversation:' : '这是此前的对话记录：'}\n\n${prior.map((m) => `${m.role === 'user' ? userLabel : aiLabel}: ${m.content}`).join('\n\n')}\n\n${en ? 'New message:' : '用户的新消息：'}\n${last.content}`
+    : last.content;
+
+  try {
+    const llm = buildLLMConfig(provider);
+    const { createConnector } = await import('../dist/connectors/factory.js');
+    const connector = createConnector(llm);
+    console.log('[chat]', llm.provider, role || '(plain)', last.content.slice(0, 60));
+    const result = await connector.chat(system, userMessage, llm);
+    res.json({ content: result.content, usage: result.usage });
+  } catch (e) {
+    res.status(500).json({ error: e?.message || String(e) });
+  }
+});
+
 // ── Compose a workflow from picked roles (LLM orchestrates the chosen cast) ──
 app.post('/api/compose', async (req, res) => {
-  const { description, roles, name, provider, lang } = req.body || {};
+  const { description, roles, name, provider, lang, budget } = req.body || {};
   if (!description || typeof description !== 'string') return res.status(400).json({ error: 'description required' });
+  // R2.2 首跑引导：无可用凭证时，返回结构化引导（前端渲染三选一），而不是让底层连接器抛晦涩错。
+  if (!composeProviderReady(provider)) {
+    return res.status(400).json({
+      code: 'no_credentials',
+      error: 'no_credentials',
+      provider: provider || process.env.AO_PROVIDER || 'apinebula',
+      installedCli: detectInstalledCliProviders(),
+      sponsors: [
+        { name: 'CCSub', bonus: '注册送 $5', url: 'https://www.ccsub.net/register?ref=8G5W4JK4' },
+        { name: 'Cubence', url: 'https://cubence.com/signup?code=SCW29JP9&source=agency' },
+      ],
+    });
+  }
   // roles 可为空 = AI 自动组队：让 LLM 从全量角色目录里自己挑专家（对应 CLI `ao compose "一句话"`，
   // 不传 --roles）。传了 roles = 锁定阵容（手动组队 / 套用已存团队）。
   const pinnedRoles = Array.isArray(roles) ? roles.map(String) : [];
@@ -797,6 +950,8 @@ app.post('/api/compose', async (req, res) => {
       // Studio「组队 → 直接跑」= compose --run 语义：不生成必填 inputs，把描述嵌进 task，
       // 否则生成的工作流带 required input、直接运行会报「请用 -i 传入」缺参数错。
       autoRun: true,
+      // R3.2 省钱模式：前端传 budget:true 时，轻活步骤自动降便宜档（桌面/web 同一后端，一处生效两端受益）
+      budget: budget === true,
     });
     res.json({ file: result.savedPath, yaml: result.yaml, warnings: result.warnings || [] });
   } catch (err) {
@@ -1115,6 +1270,19 @@ app.get('/api/config', async (_req, res) => {
       baseUrl: saved[provider]?.baseUrl || (cfg.base ? process.env[cfg.base] : '') || '',
       model: saved[provider]?.model || '',
       supportsBaseUrl: !!cfg.base,
+      // 清单 providerOverrides 里的换代模型建议——前端模型下拉在拉不到真实
+      // /models 时优先用它兜底（比打包进前端的静态建议新）
+      ...(manifest.providerOverrides?.[provider]?.modelSuggestions
+        ? { modelSuggestions: manifest.providerOverrides[provider].modelSuggestions }
+        : {}),
+      // Claude Code 模型映射回显（配置页编辑用）
+      ...(provider === 'claude-code'
+        ? {
+            sonnetModel: saved[provider]?.sonnetModel || '',
+            opusModel: saved[provider]?.opusModel || '',
+            haikuModel: saved[provider]?.haikuModel || '',
+          }
+        : {}),
     };
   }
   providers.ollama = {
@@ -1216,15 +1384,44 @@ app.post('/api/config', (req, res) => {
     delete saved[provider];
     if (KEY_ENV[provider]) { delete process.env[KEY_ENV[provider].key]; if (KEY_ENV[provider].base) delete process.env[KEY_ENV[provider].base]; }
     else if (!isCustom) delete process.env.OLLAMA_BASE_URL;
+    if (provider === 'claude-code') for (const envName of Object.values(CC_MODEL_ENVS)) delete process.env[envName];
   } else {
     saved[provider] = saved[provider] || {};
     if (typeof apiKey === 'string' && apiKey.trim()) saved[provider].apiKey = apiKey.trim();
     if (typeof baseUrl === 'string') saved[provider].baseUrl = baseUrl.trim();
     if (typeof model === 'string') saved[provider].model = model.trim();
+    // Claude Code 模型映射（Sonnet/Opus/Haiku 档位 → 中转商实际模型）；传空串 = 清掉该档位
+    if (provider === 'claude-code') {
+      for (const field of ['sonnetModel', 'opusModel', 'haikuModel']) {
+        const v = req.body[field];
+        if (typeof v !== 'string') continue;
+        if (v.trim()) saved[provider][field] = v.trim();
+        else delete saved[provider][field];
+      }
+      if (typeof model === 'string' && !model.trim()) delete saved[provider].model;
+    }
   }
   writeKeys(saved);
   applyKeys(saved);
   res.json({ ok: true });
+});
+
+// 系统 Claude Code「急救」：诊断/修复被别的软件（cc-switch 等）或手动写坏的全局
+// ~/.claude/settings.json —— 假 token + 中转地址会顶掉官方登录导致整机 CLI 不可用。
+// 跟 AO 的中转配置完全隔离：这里只做减法（删劫持 env 键），从不写入任何 token。
+app.get('/api/claude/health', (_req, res) => {
+  try {
+    res.json(diagnoseClaudeConfig());
+  } catch (err) {
+    res.status(500).json({ error: err?.message || String(err) });
+  }
+});
+app.post('/api/claude/repair', (_req, res) => {
+  try {
+    res.json({ ok: true, ...repairClaudeConfig(), health: diagnoseClaudeConfig() });
+  } catch (err) {
+    res.status(500).json({ error: err?.message || String(err) });
+  }
 });
 
 // ── 自定义供应商：新增 / 删除。编辑已有的连接信息(key/base_url/model)复用上面的
@@ -1346,40 +1543,66 @@ app.post('/api/test-provider', async (req, res) => {
 // ── 拉取供应商的真实可用模型列表（OpenAI 兼容 GET /models；claude 走 Anthropic 原生端点）──
 // body 可带 baseUrl/apiKey 覆盖：add-custom 场景用户刚填了还没保存也能先拉列表。
 app.post('/api/provider-models', async (req, res) => {
-  const { provider, baseUrl: overrideBase, apiKey: overrideKey } = req.body || {};
+  const { provider, baseUrl: overrideBase, apiKey: overrideKey, protocol } = req.body || {};
   await getRemoteManifest();
   const saved = provider ? (readKeys()[provider] || {}) : {};
   const spec = provider ? API_PROVIDER_MAP[provider] : null;
   const remote = provider ? remoteProviderSpec(provider) : null;
-  const isClaude = provider === 'claude';
+  // protocol:'anthropic' = Anthropic 兼容端点（claude-code 中转商），认证头用 x-api-key
+  const isClaude = provider === 'claude' || protocol === 'anthropic';
   const base = String(
     overrideBase || saved.baseUrl || (spec && process.env[spec.envBase]) || spec?.defaultBaseUrl || remote?.baseUrl ||
     (isClaude ? 'https://api.anthropic.com/v1' : '')
   ).replace(/\/+$/, '');
   const key = overrideKey || saved.apiKey || (spec ? process.env[spec.envKey] : '') || (isClaude ? process.env.ANTHROPIC_API_KEY : '');
   if (!base) return res.status(400).json({ ok: false, error: 'baseUrl required' });
-  if (!key) return res.json({ ok: false, error: '未设置 API key' });
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 12000);
+  // 模型公司官方 API 拉不到真实列表时（没配 key / 请求失败），退回 models.dev
+  // 公开目录——比打包进前端的静态建议新得多（cc-switch 同款做法）。
+  const modelsDevFallback = async (error) => {
+    const list = await modelsDevList(provider);
+    if (list) return res.json({ ok: true, models: list, source: 'models.dev' });
+    return res.json({ ok: false, error });
+  };
+  // 不因缺 key 短路：不少聚合商（如 ModelVerse）的 /models 是公开接口，无鉴权也
+  // 能拉全量目录——cc-switch 的大列表就是这么来的。有 key 带上，没 key 裸请求。
+  const headers = isClaude
+    ? { ...(key ? { 'x-api-key': key } : {}), 'anthropic-version': '2023-06-01' }
+    : key ? { authorization: `Bearer ${key}` } : {};
+  // 端点候选（cc-switch endpointCandidates 思路）：用户填的 base 常少带 /v1
+  // （照抄 CLI 中转配置的根地址），{base}/models 404 时自动补 /v1 再试一次。
+  const candidates = [`${base}/models`];
+  if (!/\/v\d+$/.test(base)) candidates.push(`${base}/v1/models`);
+  let lastErr = '';
   try {
-    const headers = isClaude
-      ? { 'x-api-key': key, 'anthropic-version': '2023-06-01' }
-      : { authorization: `Bearer ${key}` };
-    const r = await fetch(`${base}/models`, { signal: ctrl.signal, headers });
-    if (!r.ok) {
+    for (const url of candidates) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 12000);
+      let r;
+      try {
+        r = await fetch(url, { signal: ctrl.signal, headers });
+      } catch (e) {
+        clearTimeout(timer);
+        lastErr = e?.name === 'AbortError' ? '超时（12s）' : (e?.message || String(e));
+        break;
+      }
+      clearTimeout(timer);
+      if (r.ok) {
+        const j = await r.json().catch(() => ({}));
+        const models = (Array.isArray(j.data) ? j.data : Array.isArray(j.models) ? j.models : [])
+          .map((m) => (typeof m === 'string' ? m : m?.id))
+          .filter((id) => typeof id === 'string' && id)
+          .sort();
+        if (models.length) return res.json({ ok: true, models });
+        lastErr = 'empty model list';
+        break;
+      }
       const txt = (await r.text().catch(() => '')).slice(0, 200);
-      return res.json({ ok: false, error: `HTTP ${r.status} ${txt}` });
+      lastErr = `HTTP ${r.status} ${txt}`;
+      if (r.status !== 404) break; // 401/403 等换路径也没用，只有 404 才试下一个候选
     }
-    const j = await r.json().catch(() => ({}));
-    const models = (Array.isArray(j.data) ? j.data : Array.isArray(j.models) ? j.models : [])
-      .map((m) => (typeof m === 'string' ? m : m?.id))
-      .filter((id) => typeof id === 'string' && id)
-      .sort();
-    return res.json({ ok: true, models });
+    return await modelsDevFallback(!key && /HTTP 40[13]/.test(lastErr) ? `未设置 API key（${lastErr}）` : lastErr);
   } catch (e) {
-    return res.json({ ok: false, error: e?.name === 'AbortError' ? '超时（12s）' : (e?.message || String(e)) });
-  } finally {
-    clearTimeout(timer);
+    return await modelsDevFallback(e?.message || String(e));
   }
 });
 

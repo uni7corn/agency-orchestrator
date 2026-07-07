@@ -1,5 +1,5 @@
-import { Bookmark, Check, Loader2, MessageSquare, Search, Sparkles, Trash2, Users, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Bookmark, Check, Loader2, MessageCircle, MessageSquare, Search, Sparkles, Trash2, Users, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { api, type ComposeResult, type Role, type Team, type Workflow } from "@/lib/studio";
@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { ComposePreview } from "./ComposePreview";
 import { RoleAvatar } from "./RoleAvatar";
 import { RoleDetail } from "./RoleDetail";
+import type { ChatRole } from "./ChatPanel";
 import type { RunRequest } from "./RunManager";
 
 function roleKey(r: Role) {
@@ -19,12 +20,18 @@ export function RolesPicker({
   provider,
   onRun,
   onGoToWorkflows,
+  onPlainChat,
+  taskSeed,
   demo,
   onInstallPrompt,
 }: {
   provider: string;
   onRun: (r: RunRequest) => void;
   onGoToWorkflows?: () => void;
+  /** 对话（不组队）：可选携带输入框里已敲的文本作为第一条消息；role 非空 = 带该角色人设聊 */
+  onPlainChat?: (seed?: string, role?: ChatRole) => void;
+  /** 外部注入的任务文本（聊天面板「组队深挖」升级桥）；n 递增防重复消费 */
+  taskSeed?: { text: string; n: number } | null;
   demo?: boolean;
   onInstallPrompt?: () => void;
 }) {
@@ -41,6 +48,10 @@ export function RolesPicker({
   const [teamName, setTeamName] = useState("");
   const [composing, setComposing] = useState(false);
   const [composeErr, setComposeErr] = useState<string | null>(null);
+  // R2.2 首跑引导：无可用凭证时后端返回 code:no_credentials，这里渲染「三选一」引导卡
+  const [needKeyGuide, setNeedKeyGuide] = useState<{ installedCli?: string[]; sponsors?: { name: string; bonus?: string; url: string }[] } | null>(null);
+  // 省钱模式：轻活步骤自动降便宜档（传 budget 给 /api/compose，后端 R3.2）
+  const [budget, setBudget] = useState(false);
   const [detail, setDetail] = useState<Role | null>(null);
   const [preview, setPreview] = useState<{ result: ComposeResult; meta: Workflow | null; loading: boolean } | null>(null);
 
@@ -48,6 +59,17 @@ export function RolesPicker({
   const [teams, setTeams] = useState<Team[]>([]);
   const [savingTeam, setSavingTeam] = useState(false);
   const [teamMsg, setTeamMsg] = useState<string | null>(null);
+
+  // 聊天面板「组队深挖」带过来的任务文本：填进组队输入框并滚回顶部
+  const consumedTaskSeed = useRef(0);
+  useEffect(() => {
+    if (taskSeed && taskSeed.n !== consumedTaskSeed.current) {
+      consumedTaskSeed.current = taskSeed.n;
+      setTask(taskSeed.text);
+      setSelected({});
+      if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [taskSeed]);
 
   const refreshTeams = () => {
     if (demo) return;
@@ -161,14 +183,26 @@ export function RolesPicker({
     }
   };
 
-  const doSingleChat = () => {
-    const r = selectedList[0];
-    if (!r || !task.trim()) return;
+  // 普通对话：闲聊/快问快答不值得组一支团队——输入框里已有的文本直接作为第一条消息
+  const doPlainChat = () => {
     if (demo) {
       onInstallPrompt?.();
       return;
     }
-    onRun({ kind: "role", title: `${t.studio.roles.singleChat} · ${r.name}`, role: roleKey(r), emoji: undefined, name: r.name, task: task.trim(), provider, lang });
+    track("plain_chat_open", { seeded: !!task.trim() });
+    onPlainChat?.(task.trim() || undefined);
+  };
+
+  // 单独对话 = 同一个聊天面板带上该角色人设（多轮、可追问），不再是一次性运行
+  const doSingleChat = () => {
+    const r = selectedList[0];
+    if (!r) return;
+    if (demo) {
+      onInstallPrompt?.();
+      return;
+    }
+    track("plain_chat_open", { seeded: !!task.trim(), persona: "role" });
+    onPlainChat?.(task.trim() || undefined, { path: roleKey(r), name: r.name, color: r.color });
   };
 
   // auto=true：不锁定阵容，传空 roles 让后端 LLM 自动组队（对应 CLI `ao compose "一句话"`）。
@@ -182,6 +216,7 @@ export function RolesPicker({
     }
     setComposing(true);
     setComposeErr(null);
+    setNeedKeyGuide(null);
     const mode = auto ? "auto" : "manual";
     track("compose_start", { mode, role_count: auto ? 0 : count });
     try {
@@ -191,6 +226,7 @@ export function RolesPicker({
         name: auto ? undefined : teamName.trim() || undefined,
         provider: provider || undefined,
         lang,
+        budget,
       });
       track("compose_success", { mode });
       // Preview the composed team before running (not a black box).
@@ -204,7 +240,9 @@ export function RolesPicker({
       }
     } catch (e: any) {
       track("compose_error", { mode });
-      setComposeErr(e?.message || t.studio.roles.composeFailed);
+      // 无凭证 → 渲染引导卡（三选一）而不是红字报错
+      if (e?.body?.code === "no_credentials") setNeedKeyGuide({ installedCli: e.body.installedCli, sponsors: e.body.sponsors });
+      else setComposeErr(e?.message || t.studio.roles.composeFailed);
     } finally {
       setComposing(false);
     }
@@ -220,7 +258,10 @@ export function RolesPicker({
 
   return (
     <div className="pb-40">
-      {/* AI 自动组队 —— 核心入口：不用手选角色，一句话让 LLM 从全量专家里自动挑人组队并运行 */}
+      {/* AI 自动组队 —— 核心入口：不用手选角色，一句话让 LLM 从全量专家里自动挑人组队并运行。
+          勾选了角色即收起：底部托盘输入和这里绑同一份 task 文本，同屏出现两个内容互相
+          镜像的输入框会让人不知道该用哪个——任何时刻只留一个任务输入框（清空选择即恢复）。 */}
+      {count === 0 && (
       <div className="mb-5 rounded-2xl border border-primary/30 bg-primary/5 p-4 sm:p-5">
         <div className="mb-1 flex items-center gap-2">
           <Sparkles className="size-5 text-primary" />
@@ -241,14 +282,53 @@ export function RolesPicker({
             {composing ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
             {t.studio.roles.autoComposeBtn}
           </Button>
+          <Button onClick={doPlainChat} disabled={composing} size="lg" variant="outline" title={t.studio.chat.btnTitle} className="shrink-0">
+            <MessageCircle className="size-4" />
+            {t.studio.chat.btn}
+          </Button>
         </div>
-        {composeErr && count === 0 && <p className="mt-2 text-xs text-red-500">{composeErr}</p>}
+        <label className="mt-2.5 flex w-fit cursor-pointer items-center gap-2 text-xs text-muted-foreground" title={t.studio.roles.budgetModeHint}>
+          <input type="checkbox" checked={budget} onChange={(e) => setBudget(e.target.checked)} className="size-3.5 accent-primary" />
+          <span>{t.studio.roles.budgetMode}</span>
+        </label>
+        {composing && (
+          <p className="mt-2.5 flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/[0.06] px-3 py-2 text-xs text-primary">
+            <Loader2 className="size-3.5 shrink-0 animate-spin" />
+            {t.studio.roles.composingHint}
+          </p>
+        )}
+        {composeErr && count === 0 && (
+          <p className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-500">{composeErr}</p>
+        )}
+        {needKeyGuide && (
+          <div className="mt-2.5 space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] px-3.5 py-3 text-xs">
+            <p className="font-semibold text-amber-600 dark:text-amber-400">{t.studio.roles.needKeyTitle}</p>
+            <div className="space-y-1.5 text-foreground/90">
+              {needKeyGuide.installedCli && needKeyGuide.installedCli.length > 0 && (
+                <p>① {t.studio.roles.needKeyCli}<code className="rounded bg-muted px-1">{needKeyGuide.installedCli[0]}</code>{t.studio.roles.needKeyCliAfter}</p>
+              )}
+              <p>
+                ② {t.studio.roles.needKeySponsor}
+                {(needKeyGuide.sponsors ?? []).map((s, i) => (
+                  <span key={s.name}>
+                    {i > 0 && "、"}
+                    <a href={s.url} target="_blank" rel="noreferrer" className="text-primary underline">{s.name}{s.bonus ? `（${s.bonus}）` : ""}</a>
+                  </span>
+                ))}
+                {t.studio.roles.needKeySponsorAfter}
+              </p>
+              <p>③ {t.studio.roles.needKeyLocal}</p>
+            </div>
+          </div>
+        )}
         <p className="mt-2.5 text-xs text-muted-foreground/80">{t.studio.roles.autoOrManual}</p>
       </div>
+      )}
 
       {/* onboarding hint */}
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
         <span>💡 {t.studio.roles.hintLabel}</span>
+        <span><b className="text-foreground">{t.studio.roles.hintPickNoneBold}</b> {t.studio.roles.hintPickNoneRest}</span>
         <span><b className="text-foreground">{t.studio.roles.hintPickOneBold}</b> {t.studio.roles.hintPickOneRest}</span>
         <span><b className="text-foreground">{t.studio.roles.hintPickManyBold}</b> {t.studio.roles.hintPickManyRest}</span>
         <span>{t.studio.roles.hintAvatarPre}<b className="text-foreground">{t.studio.roles.hintAvatarBold}</b>{t.studio.roles.hintAvatarPost}</span>
@@ -432,19 +512,27 @@ export function RolesPicker({
                   </Button>
                 </>
               ) : (
-                <Button onClick={doSingleChat} disabled={!task.trim()}>
+                <Button onClick={doSingleChat}>
                   <MessageSquare className="size-4" />
                   {t.studio.roles.singleChat}
                 </Button>
               )}
             </div>
+            {composing && (
+              <p className="mt-2 flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/[0.06] px-3 py-2 text-xs text-primary">
+                <Loader2 className="size-3.5 shrink-0 animate-spin" />
+                {t.studio.roles.composingHint}
+              </p>
+            )}
             {teamMsg && <p className="mt-2 text-xs text-muted-foreground">{teamMsg}</p>}
-            {composeErr && <p className="mt-2 text-xs text-red-500">{composeErr}</p>}
+            {composeErr && (
+              <p className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-500">{composeErr}</p>
+            )}
           </div>
         </div>
       )}
 
-      {detail && <RoleDetail role={detail} provider={provider} onClose={() => setDetail(null)} onRun={onRun} demo={demo} onInstallPrompt={onInstallPrompt} />}
+      {detail && <RoleDetail role={detail} onClose={() => setDetail(null)} onChat={(seed, r) => onPlainChat?.(seed, r)} demo={demo} onInstallPrompt={onInstallPrompt} />}
       {preview && (
         <ComposePreview
           result={preview.result}

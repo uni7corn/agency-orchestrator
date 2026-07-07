@@ -1,7 +1,8 @@
 import { BarChart3, Boxes, Download, History, KeyRound, Plug, TriangleAlert, Users } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import { ChatPanel, type ChatRole, type ChatSeed } from "@/components/studio/ChatPanel";
 import { ModelSelect } from "@/components/studio/ModelSelect";
 import { ProviderSelect } from "@/components/studio/ProviderSelect";
 import { ProvidersPanel } from "@/components/studio/ProvidersPanel";
@@ -53,11 +54,15 @@ function StudioInner() {
   const [installOpen, setInstallOpen] = useState(false);
   const offline = status !== "online";
 
-  const setProvider = useCallback((p: string) => {
-    setActiveProvider(p);
-    setProviderState(p);
-  }, []);
-
+  // 对话（不组队）：普通对话与单角色对话共用一个面板。面板常驻挂载，open 开关；
+  // seed 是从任务输入框带来的首条消息；role 非空 = 带该角色人设聊
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatSeed, setChatSeed] = useState<ChatSeed | null>(null);
+  const [chatRole, setChatRole] = useState<ChatRole | null>(null);
+  const seedCounter = useRef(0);
+  // refreshConfig / setTab 必须定义在引用它们的回调（escalateToTeam 等）之前，否则
+  // 依赖数组 [setTab] 在渲染时求值会命中 TDZ（Cannot access 'setTab' before initialization），
+  // 整个 Studio 白屏。见下方 escalateToTeam 的 [setTab] 依赖。
   const refreshConfig = useCallback(() => {
     api
       .config()
@@ -69,11 +74,6 @@ function StudioInner() {
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (status === "online") refreshConfig();
-  }, [status, refreshConfig]);
-
   // Refresh key status whenever leaving the providers tab (so the warning clears).
   const setTab = useCallback(
     (t: Tab) => {
@@ -84,6 +84,27 @@ function StudioInner() {
     },
     [refreshConfig],
   );
+  const openPlainChat = useCallback((seedText?: string, role?: ChatRole) => {
+    setChatRole(role ?? null);
+    if (seedText) setChatSeed({ text: seedText, n: ++seedCounter.current });
+    setChatOpen(true);
+  }, []);
+  // 聊天 → 组队升级桥：关面板、切到角色页、把问题填进「AI 自动组队」输入框
+  const [taskSeed, setTaskSeed] = useState<{ text: string; n: number } | null>(null);
+  const escalateToTeam = useCallback((text: string) => {
+    setChatOpen(false);
+    setTaskSeed({ text, n: ++seedCounter.current });
+    setTab("roles");
+  }, [setTab]);
+
+  const setProvider = useCallback((p: string) => {
+    setActiveProvider(p);
+    setProviderState(p);
+  }, []);
+
+  useEffect(() => {
+    if (status === "online") refreshConfig();
+  }, [status, refreshConfig]);
 
   const effProvider = provider || DEFAULT_PROVIDER;
   const needKeyWarning = status === "online" && KEYED.includes(effProvider) && keyedHas[effProvider] === false;
@@ -134,7 +155,7 @@ function StudioInner() {
                 <span className={cn("size-1.5 rounded-full", status === "online" ? "bg-emerald-500" : status === "offline" ? "bg-amber-500" : "bg-muted-foreground")} />
                 {status === "online" ? t.studio.shell.statusOnline : status === "offline" ? t.studio.shell.statusOffline : t.studio.shell.statusChecking}
               </span>
-              <ProviderSelect value={provider} onChange={setProvider} />
+              <ProviderSelect value={provider} onChange={setProvider} onOpenProviders={() => setTab("providers")} />
               <ModelSelect provider={provider} />
               <Button size="sm" variant="outline" onClick={() => setTab("providers")}>
                 <KeyRound className="size-4" />
@@ -195,7 +216,7 @@ function StudioInner() {
               )}
             </>
           ) : tab === "roles" ? (
-            <RolesPicker provider={provider} onRun={start} onGoToWorkflows={() => setTab("workflows")} />
+            <RolesPicker provider={provider} onRun={start} onGoToWorkflows={() => setTab("workflows")} onPlainChat={openPlainChat} taskSeed={taskSeed} />
           ) : tab === "workflows" ? (
             <WorkflowsPanel provider={provider} onRun={start} />
           ) : tab === "runs" ? (
@@ -215,7 +236,9 @@ function StudioInner() {
           open(null);
           setTab("runs");
         }}
+        onGoProviders={() => setTab("providers")}
       />
+      <ChatPanel open={chatOpen} seed={chatSeed} role={chatRole} provider={effProvider} onClose={() => setChatOpen(false)} onEscalate={escalateToTeam} />
       <RunDock />
       {installOpen && <InstallPrompt onClose={() => setInstallOpen(false)} />}
       <SiteFooter />

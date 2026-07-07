@@ -133,6 +133,12 @@ export interface ScoreResult {
   best: string | null;
 }
 
+// ── 普通对话（闲聊不组队）──
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export type SseHandler = (event: string, data: any) => void;
 
 const API = "/api";
@@ -173,13 +179,16 @@ async function postJSON<T>(path: string, body: unknown): Promise<T> {
   });
   if (!res.ok) {
     let msg = `${res.status}`;
+    let payload: any = undefined;
     try {
-      const j = await res.json();
-      msg = j.error || msg;
+      payload = await res.json();
+      msg = payload.error || msg;
     } catch {
       /* ignore */
     }
-    throw new Error(msg);
+    const err = new Error(msg) as Error & { body?: any };
+    if (payload) err.body = payload; // 结构化错误体（如 no_credentials 引导）挂上，调用方可读
+    throw err;
   }
   return res.json();
 }
@@ -226,6 +235,12 @@ export interface ProviderKeyStatus {
   model?: string;
   supportsBaseUrl?: boolean;
   configured?: boolean;
+  /** 远程清单 providerOverrides 下发的换代模型建议（比打包进前端的静态建议新） */
+  modelSuggestions?: string[];
+  /** 仅 claude-code：Sonnet/Opus/Haiku 档位 → 中转商实际模型的映射（ANTHROPIC_DEFAULT_*_MODEL） */
+  sonnetModel?: string;
+  opusModel?: string;
+  haikuModel?: string;
 }
 
 export interface CliProviderStatus {
@@ -280,16 +295,13 @@ export interface CustomProviderPreset {
   name: string;
   baseUrl: string;
 }
+// 便捷预设 = 点一下自动填 名称+base_url 的「快捷键」，纯工具性质（无 logo/推广，跟赞助无关）。
+// 只留主流大厂（用户真会用的），长尾厂商删掉减噪——删了也不影响：手动填 URL 仍可加任意 OpenAI 兼容端点。
 export const CUSTOM_PROVIDER_PRESETS: CustomProviderPreset[] = [
   { name: "阿里云 DashScope (Qwen)", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-  { name: "ModelScope 魔搭", baseUrl: "https://api-inference.modelscope.cn/v1" },
   { name: "火山方舟 Volcengine Ark", baseUrl: "https://ark.cn-beijing.volces.com/api/v3" },
   { name: "Zhipu GLM 智谱", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
   { name: "Moonshot Kimi", baseUrl: "https://api.moonshot.cn/v1" },
-  { name: "MiniMax", baseUrl: "https://api.minimax.chat/v1" },
-  { name: "StepFun 阶跃星辰", baseUrl: "https://api.stepfun.com/v1" },
-  { name: "百川智能 Baichuan", baseUrl: "https://api.baichuan-ai.com/v1" },
-  { name: "零一万物 01.AI", baseUrl: "https://api.lingyiwanwu.com/v1" },
   { name: "Mistral AI", baseUrl: "https://api.mistral.ai/v1" },
 ];
 
@@ -367,11 +379,70 @@ export interface CompareResult {
   verdict: CompareVerdict | null;
 }
 
+// 系统 Claude Code 体检/急救（后端 src/utils/claude-repair.ts 的返回结构）
+export interface ClaudeHealth {
+  healthy: boolean;
+  files: { path: string; exists: boolean; parseError?: string; hijackKeys: Record<string, string> }[];
+  shellOverrides: Record<string, string>;
+  baseUrl?: string;
+}
+export interface ClaudeRepairResult {
+  ok: boolean;
+  changed: boolean;
+  files: { path: string; removedKeys: string[]; backup: string | null; removedEmptyEnv: boolean }[];
+  shellOverridesRemaining: string[];
+  skipped: { path: string; reason: string }[];
+  health: ClaudeHealth;
+}
+
+// 从模型 id 推断所属厂商，给「获取模型列表」的大列表分组用（对齐 cc-switch 的按 vendor 分组）。
+// 聚合商 /models 常有上百个还混各家，扁平一堆没法扫；按厂商分组后一眼定位。
+// 优先用带命名空间的前缀（如 "deepseek-ai/DeepSeek-V3.2" → deepseek-ai），否则按关键词猜。
+const MODEL_VENDOR_RULES: [RegExp, string][] = [
+  [/claude|anthropic/i, "Anthropic"],
+  [/gpt|^o[13]\b|chatgpt|openai|dall|whisper/i, "OpenAI"],
+  [/gemini|palm|imagen|veo|^google/i, "Google"],
+  [/deepseek/i, "DeepSeek"],
+  [/qwen|qwq|tongyi/i, "Qwen 通义"],
+  [/doubao|seedance|seedream|bytedance|ui-tars/i, "ByteDance 豆包"],
+  [/minimax|hailuo|abab/i, "MiniMax"],
+  [/moonshot|kimi/i, "Moonshot"],
+  [/glm|zhipu|cogview/i, "Zhipu 智谱"],
+  [/llama|meta-/i, "Meta"],
+  [/mistral|mixtral|codestral/i, "Mistral"],
+  [/(^|\/)(yi-|01-ai)|lingyi/i, "01.AI 零一"],
+  [/flux|stable-?diffusion|sd3|black-?forest/i, "图像模型"],
+  [/bge|bce|embedding|rerank|m3e|jina/i, "向量/重排"],
+  [/tts|speech|voice|indextts|cosyvoice/i, "语音模型"],
+];
+export function modelVendor(id: string): string {
+  for (const [re, name] of MODEL_VENDOR_RULES) if (re.test(id)) return name;
+  // 带命名空间前缀但没命中规则的，用前缀本身兜底（如 "SomeOrg/xxx" → SomeOrg）
+  const ns = id.includes("/") ? id.split("/")[0] : "";
+  return ns || "其它";
+}
+/** 按厂商把模型分组并排序，各组内保持原序；组按名称排序，「其它」永远垫底。 */
+export function groupModelsByVendor(models: string[]): [string, string[]][] {
+  const groups: Record<string, string[]> = {};
+  for (const m of models) (groups[modelVendor(m)] ??= []).push(m);
+  return Object.entries(groups).sort((a, b) =>
+    a[0] === "其它" ? 1 : b[0] === "其它" ? -1 : a[0].localeCompare(b[0]),
+  );
+}
+
+// 有正方形图标素材的赞助商/供应商 → website/public/sponsors/logo-<id>-icon.png（served at /sponsors/…）。
+// 只对确有文件的 id 返回路径，避免其它供应商拿到 404 的 <img>。
+const PROVIDER_LOGO_IDS = new Set(["compshare", "cubence", "apinebula", "rootflowai", "ccsub"]);
+export function providerLogo(id: string): string | undefined {
+  return PROVIDER_LOGO_IDS.has(id) ? `/sponsors/logo-${id}-icon.png` : undefined;
+}
+
 export const api = {
   health: () => getJSON<{ ok: boolean; version: string }>("/health"),
   usage: () => getJSON<UsageResponse>("/usage"),
   config: () => getJSON<ConfigResponse>("/config"),
-  saveConfig: (body: { provider: string; apiKey?: string; baseUrl?: string; model?: string }) =>
+  // sonnetModel/opusModel/haikuModel 仅 claude-code 用（模型映射，对齐 cc-switch）
+  saveConfig: (body: { provider: string; apiKey?: string; baseUrl?: string; model?: string; sonnetModel?: string; opusModel?: string; haikuModel?: string }) =>
     // backups 只有 codex-cli 这条中转会带（写了 ~/.codex 前自动备份的原文件路径）
     postJSON<{ ok: boolean; backups?: string[] }>("/config", body),
   // apiKey/baseUrl/model 可选覆盖:配置页里"填了就能测",不用先保存
@@ -379,9 +450,10 @@ export const api = {
     postJSON<{ ok: boolean; latencyMs?: number; error?: string; note?: string }>("/test-provider", { provider, ...overrides }),
   createCustomProvider: (body: { id: string; name: string; note?: string; homepageUrl?: string; baseUrl: string; apiKey?: string; model?: string }) =>
     postJSON<{ ok: boolean }>("/custom-providers", body),
-  // 拉取供应商真实可用模型列表（OpenAI 兼容 GET /models）；baseUrl/apiKey 可覆盖（未保存时先试拉）
-  providerModels: (body: { provider?: string; baseUrl?: string; apiKey?: string }) =>
-    postJSON<{ ok: boolean; models?: string[]; error?: string }>("/provider-models", body),
+  // 拉取供应商真实可用模型列表（OpenAI 兼容 GET /models）；baseUrl/apiKey 可覆盖（未保存时先试拉）；
+  // protocol:"anthropic" = Anthropic 兼容端点（claude-code 中转商），认证头用 x-api-key
+  providerModels: (body: { provider?: string; baseUrl?: string; apiKey?: string; protocol?: "anthropic" }) =>
+    postJSON<{ ok: boolean; models?: string[]; error?: string; source?: string }>("/provider-models", body),
   deleteCustomProvider: (id: string) => delJSON<{ ok: boolean }>(`/custom-providers/${encodeURIComponent(id)}`),
   updateCustomProvider: (id: string, body: { name?: string; note?: string; homepageUrl?: string }) =>
     putJSON<{ ok: boolean }>(`/custom-providers/${encodeURIComponent(id)}`, body),
@@ -395,7 +467,8 @@ export const api = {
     postJSON<{ file: string; overwritten: boolean; errors?: string[] }>("/workflows/graph", body),
   runs: () => getJSON<RunSummary[]>("/runs"),
   run: (id: string) => getJSON<RunSummary>(`/runs/${encodeURIComponent(id)}`),
-  compose: (body: { description: string; roles: string[]; name?: string; provider?: string; lang?: string }) =>
+  // budget:true = 省钱模式，轻活步骤自动降便宜档（后端 R3.2，桌面/web 同一后端）
+  compose: (body: { description: string; roles: string[]; name?: string; provider?: string; lang?: string; budget?: boolean }) =>
     postJSON<ComposeResult>("/compose", body),
   // 团队 / Loadout：可复用角色阵容，与 `ao team` CLI 共用 ~/.ao/teams
   teams: () => getJSON<{ teams: Team[] }>("/teams").then((r) => r.teams),
@@ -408,6 +481,10 @@ export const api = {
   // ── 多智能体 vs 单次基线对比（本地引擎，非流式，可能较慢）──
   compare: (body: { file: string; inputs: Record<string, string>; provider?: string }) =>
     postJSON<CompareResult>("/compare", body),
+  // ── 对话：不组队，直接用当前 provider 的模型回答（多轮历史整包带上）。
+  // role（如 "engineering/engineering-sre"）可选 = 带该角色人设的多轮对话 ──
+  chat: (body: { messages: ChatMessage[]; provider?: string; lang?: string; role?: string }) =>
+    postJSON<{ content: string; usage?: { input_tokens: number; output_tokens: number } }>("/chat", body),
   // ── Prompt Lab ──
   optimizePrompt: (body: { rawPrompt: string; mode: PromptMode; provider?: string; lang?: string; model?: string }) =>
     postJSON<{ optimized: string }>("/prompt/optimize", body),
@@ -415,6 +492,9 @@ export const api = {
     postJSON<{ output: string }>("/prompt/test", body),
   scorePrompts: (body: { testInput: string; candidates: { label: string; output: string }[]; provider?: string; lang?: string }) =>
     postJSON<ScoreResult>("/prompt/score", body),
+  // ── 系统 Claude Code 急救：诊断/修复被别的软件或手动写坏的全局 ~/.claude/settings.json ──
+  claudeHealth: () => getJSON<ClaudeHealth>("/claude/health"),
+  repairClaude: () => postJSON<ClaudeRepairResult>("/claude/repair", {}),
   prompts: () => getJSON<{ prompts: PromptRecord[] }>("/prompts").then((r) => r.prompts),
   savePrompt: (body: { name: string; mode: PromptMode; versions: PromptVersion[]; favorite?: boolean }) =>
     postJSON<{ ok: boolean; slug: string }>("/prompts", body),
@@ -524,16 +604,40 @@ export interface ApiProviderMeta {
   modelSuggestions?: string[];
 }
 
+// 「一个 key 通 Claude/GPT/Gemini 等多家」的跨家中转，没 key 时的常用模型兜底：
+// 各家旗舰对话模型，够日常直接挑；要全量仍是填 key 后点「获取模型列表」。
+// 只列仓库内已知的真实模型名（不臆造），换代时随版本更新，或走远程清单 providerOverrides 覆盖。
+export const COMMON_RELAY_MODELS = [
+  "claude-opus-4-8",
+  "claude-sonnet-5",
+  "claude-haiku-4-5-20251001",
+  "gpt-5.5",
+  "gpt-5.4-mini",
+  "gpt-4o",
+  "gemini-3.5-flash",
+  "deepseek-chat",
+  "deepseek-reasoner",
+];
+
+// modelSuggestions 是「没配 key / 拉取失败」时的静态兜底展示——真实列表优先走该
+// 供应商的 GET /models（配了 key 即生效）；模型换代时优先改官网远程清单的
+// providerOverrides（push 即生效，不用发版），这里的静态基线随版本更新兜底。
 export const API_PROVIDERS: ApiProviderMeta[] = [
   // 旗舰赞助商 APINEBULA —— 置顶 + 金色高亮（大屏特有）
-  { id: "apinebula", name: "APINEBULA", hint: "apinebula.com", defaultBaseUrl: "https://apinebula.com/v1", signupUrl: "https://apinebula.com/V6ekjG", flagship: true, modelSuggestions: ["gpt-5.5", "claude-opus-4", "gemini-2.5-pro", "deepseek-chat"] },
+  { id: "apinebula", name: "APINEBULA", hint: "apinebula.com", defaultBaseUrl: "https://apinebula.com/v1", signupUrl: "https://apinebula.com/V6ekjG", flagship: true, modelSuggestions: ["gpt-5.5", "claude-opus-4-8", "claude-sonnet-5", "gemini-3.5-flash", "deepseek-chat"] },
   // 普通赞助商 CompShare —— 次于旗舰，中性「赞助商」标记
-  { id: "compshare", name: "CompShare", hint: "console.compshare.cn", defaultBaseUrl: "https://api.modelverse.cn/v1", signupUrl: "https://passport.compshare.cn/register?referral_code=ETD3L5JBM13CtKARkMORot&ytag=GPU_YY_YX_git_agency-agents", sponsor: true, modelSuggestions: ["deepseek-ai/DeepSeek-R1", "deepseek-ai/DeepSeek-V3"] },
+  { id: "compshare", name: "CompShare", hint: "console.compshare.cn", defaultBaseUrl: "https://api.modelverse.cn/v1", signupUrl: "https://passport.compshare.cn/register?referral_code=ETD3L5JBM13CtKARkMORot&ytag=GPU_YY_YX_git_agency-agents", sponsor: true, modelSuggestions: ["deepseek-ai/DeepSeek-V3.2", "deepseek-ai/DeepSeek-R1", "Qwen/Qwen3-Coder-480B-A35B-Instruct", "MiniMaxAI/MiniMax-M2.7"] },
   // 普通赞助商 RootFlowAI —— 前 3 位，紧跟两家旗舰/赞助商之后
-  { id: "rootflowai", name: "RootFlowAI", hint: "rootflowai.com", defaultBaseUrl: "https://api.rootflowai.com/v1", signupUrl: "https://rootflowai.com/register?utm_source=agency-agents-zh&utm_medium=sponsor&utm_campaign=studio", sponsor: true, modelSuggestions: ["claude-sonnet-4-6", "claude-opus-4-7", "gpt-5.5", "gemini-3.1-pro-preview"] },
+  { id: "rootflowai", name: "RootFlowAI", hint: "rootflowai.com", defaultBaseUrl: "https://api.rootflowai.com/v1", signupUrl: "https://rootflowai.com/register?utm_source=agency-agents-zh&utm_medium=sponsor&utm_campaign=studio", sponsor: true, modelSuggestions: COMMON_RELAY_MODELS },
+  // 赞助商 Cubence —— API 中转：一个 key 通用多家模型（此为直连 API 用法；
+  // 给本地 CLI 配中转的另一用法见 CLI_RELAY_PRESETS，两者共用同一账号）
+  { id: "cubence", name: "Cubence", hint: "api.cubence.com", defaultBaseUrl: "https://api.cubence.com/v1", signupUrl: "https://cubence.com/signup?code=SCW29JP9&source=agency", sponsor: true, modelSuggestions: COMMON_RELAY_MODELS },
+  // CCSub（赞助商）—— 一个 key 通 Claude/GPT/Gemini/DeepSeek 全家桶,官方约 1/3 价,注册送 $5;
+  // 统一端点 www.ccsub.net 同时兼容 Anthropic 与 OpenAI（此处直连走 OpenAI 兼容 /v1）
+  { id: "ccsub", name: "CCSub", hint: "www.ccsub.net · 注册送 $5", defaultBaseUrl: "https://www.ccsub.net/v1", signupUrl: "https://www.ccsub.net/register?ref=8G5W4JK4", sponsor: true, modelSuggestions: COMMON_RELAY_MODELS },
   { id: "deepseek", name: "DeepSeek", hint: "platform.deepseek.com", defaultBaseUrl: "https://api.deepseek.com/v1", vendor: true, modelSuggestions: ["deepseek-chat", "deepseek-reasoner"] },
-  { id: "claude", name: "Claude (Anthropic)", shortName: "Claude", hint: "console.anthropic.com", defaultBaseUrl: "https://api.anthropic.com/v1", vendor: true, modelSuggestions: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022"] },
-  { id: "openai", name: "OpenAI", hint: "gpt-4o {etc} · platform.openai.com", defaultBaseUrl: "https://api.openai.com/v1", vendor: true, modelSuggestions: ["gpt-4o", "gpt-4o-mini", "o1", "o3-mini", "gpt-4.1"] },
+  { id: "claude", name: "Claude (Anthropic)", shortName: "Claude", hint: "console.anthropic.com", defaultBaseUrl: "https://api.anthropic.com/v1", vendor: true, modelSuggestions: ["claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5-20251001"] },
+  { id: "openai", name: "OpenAI", hint: "gpt-5.5 {etc} · platform.openai.com", defaultBaseUrl: "https://api.openai.com/v1", vendor: true, modelSuggestions: ["gpt-5.5", "gpt-5.4-mini", "gpt-4o"] },
   { id: "agnes", name: "Agnes AI", hint: "agnes-2.0-flash · agnes-ai.com", defaultBaseUrl: "https://apihub.agnes-ai.com/v1", modelSuggestions: ["agnes-2.0-flash", "agnes-1.5-flash"] },
 ];
 

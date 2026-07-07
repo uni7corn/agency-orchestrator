@@ -1,9 +1,10 @@
-import { Check, ChevronDown, Cloud, ExternalLink, Loader2, MonitorCog, Plus, Settings2, Sparkles, Terminal, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Cloud, Copy, Loader2, MonitorCog, Plus, Settings2, Sparkles, Terminal, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { api, API_PROVIDERS, CLI_RELAY_GLOBAL_WRITE, CLI_RELAY_PRESETS, CLI_RELAY_SUPPORT, DEFAULT_PROVIDER, PROVIDER_LABELS, type CliRelayPreset, type ConfigResponse } from "@/lib/studio";
+import { api, API_PROVIDERS, CLI_RELAY_GLOBAL_WRITE, CLI_RELAY_PRESETS, CLI_RELAY_SUPPORT, DEFAULT_PROVIDER, PROVIDER_LABELS, providerLogo, type CliRelayPreset, type ConfigResponse } from "@/lib/studio";
 import { cn } from "@/lib/utils";
+import { ClaudeHealthCard } from "./ClaudeHealthCard";
 import { ProviderConfigView, type ConfigTarget } from "./ProviderConfigView";
 
 // provider 列表/模型建议的唯一来源是 lib/studio.ts 的 API_PROVIDERS —— 新增一家 provider 只用改那一处。
@@ -28,6 +29,7 @@ function ActiveButton({ on, onClick }: { on: boolean; onClick: () => void }) {
  */
 function ProviderRow({
   name,
+  logo,
   statusLine,
   statusTone = "muted",
   flagship,
@@ -35,9 +37,11 @@ function ProviderRow({
   active,
   onSetActive,
   onEdit,
+  onDuplicate,
   onDelete,
 }: {
   name: string;
+  logo?: string;
   statusLine: string;
   statusTone?: "muted" | "ok";
   flagship?: boolean;
@@ -45,6 +49,7 @@ function ProviderRow({
   active: boolean;
   onSetActive: () => void;
   onEdit: () => void;
+  onDuplicate?: () => void;
   onDelete?: () => void;
 }) {
   const { t } = useLanguage();
@@ -55,7 +60,11 @@ function ProviderRow({
         flagship ? "border-gold/60 bg-gold/[0.04]" : active ? "border-primary/60" : "border-border/70",
       )}
     >
-      <span className="min-w-0">
+      <span className="flex min-w-0 items-center gap-2.5">
+        {logo && (
+          <img src={logo} alt="" className="size-7 shrink-0 rounded-lg object-contain" onError={(e) => (e.currentTarget.style.display = "none")} />
+        )}
+        <span className="min-w-0">
         <span className="flex items-center gap-1.5">
           <span className="truncate text-sm font-semibold">{name}</span>
           {flagship && (
@@ -72,6 +81,7 @@ function ProviderRow({
         <span className={cn("block truncate text-[11px]", statusTone === "ok" ? "font-medium text-emerald-500" : "text-muted-foreground")}>
           {statusLine}
         </span>
+        </span>
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
         <ActiveButton on={active} onClick={onSetActive} />
@@ -82,6 +92,15 @@ function ProviderRow({
         >
           <Settings2 className="size-3.5" />
         </button>
+        {onDuplicate && (
+          <button
+            onClick={onDuplicate}
+            className="grid size-8 place-items-center rounded-lg border border-border/70 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+            title={t.studio.providers.duplicateCta}
+          >
+            <Copy className="size-3.5" />
+          </button>
+        )}
         {onDelete && (
           <button
             onClick={() => { if (window.confirm(t.studio.providers.customProviderDeleteConfirm)) onDelete(); }}
@@ -113,7 +132,8 @@ function RelayVendorRow({ preset, onConfigure }: { preset: CliRelayPreset; onCon
   }, [open]);
 
   return (
-    <div className="flex items-center justify-between gap-2 rounded-xl border border-border/70 bg-card/60 px-4 py-3 sm:col-span-2">
+    // 普通卡片宽度（不再 sm:col-span-2 通栏——中转商和 CLI 卡片同规格，别喧宾夺主）；内容窄屏自动换行
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/70 bg-card/60 px-4 py-3">
       <span className="min-w-0">
         <span className="flex items-center gap-1.5">
           <span className="truncate text-sm font-semibold">{preset.name}</span>
@@ -126,13 +146,7 @@ function RelayVendorRow({ preset, onConfigure }: { preset: CliRelayPreset; onCon
         <span className="block truncate text-[11px] text-muted-foreground">{t.studio.providers.cliRelayVendorLine}</span>
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
-        {preset.signupUrl && (
-          <Button size="sm" asChild>
-            <a href={preset.signupUrl} target="_blank" rel="noreferrer">
-              {t.studio.providers.registerCta} <ExternalLink className="size-3" />
-            </a>
-          </Button>
-        )}
+        {/* 注册领取 Key 的入口不放这里（冗余 + 撑大行高）——点「配置中转」进去的配置页右上角已有同一个链接 */}
         <div className="relative" ref={ref}>
           <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}>
             <Settings2 className="size-3.5" /> {t.studio.providers.cliRelayConfigureCta} <ChevronDown className="size-3 opacity-60" />
@@ -182,11 +196,13 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
     id === "compshare" ? t.studio.providers.compshareName
     : id === "apinebula" ? t.studio.providers.apinebulaName
     : id === "rootflowai" ? t.studio.providers.rootflowaiName
+    : id === "cubence" ? t.studio.providers.cubenceName
     : fallback;
   const displayHint = (id: string, fallback: string) =>
     id === "compshare" ? t.studio.providers.compshareHint
     : id === "apinebula" ? t.studio.providers.apinebulaHint
     : id === "rootflowai" ? t.studio.providers.rootflowaiHint
+    : id === "cubence" ? t.studio.providers.cubenceHint
     : fallback.replace("{etc}", t.studio.providers.etc);
 
   const keyStatus = (id: string): { line: string; tone: "muted" | "ok" } => {
@@ -194,6 +210,23 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
     return s?.hasKey
       ? { line: `${t.studio.providers.keySet}${s.fromEnv ? t.studio.providers.fromEnv : ""}`, tone: "ok" }
       : { line: t.studio.providers.keyNotSet, tone: "muted" };
+  };
+
+  // 「复制为供应商」：把某个品牌供应商复制成一个自定义供应商——预填品牌端点 + 当前(或默认)
+  // 模型,用户改成同品牌另一个模型、起名、填 key 后保存,再「设为当前」启用。复用现成的
+  // 自定义供应商机制,不引入平行档案系统(见与用户确认的轻量方案)。
+  const duplicateProvider = (id: string, name: string, baseUrl?: string, defaultModel?: string) => {
+    const model = cfg?.providers?.[id]?.model || defaultModel || "";
+    setEditing({
+      kind: "add-custom",
+      prefill: {
+        id: `${id}-copy`,
+        name: `${name}${t.studio.providers.duplicateSuffix}`,
+        baseUrl,
+        model,
+        note: `${t.studio.providers.duplicateNote}${name}`,
+      },
+    });
   };
 
   // CLI 中转商 = 内置预设 + 远程清单增量（同名以内置为准）
@@ -207,6 +240,9 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
       <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-xs leading-relaxed text-muted-foreground">
         {t.studio.providers.privacyBeforeLocal}<strong>{t.studio.providers.privacyLocal}</strong>{t.studio.providers.privacyBeforeCode}<code className="rounded bg-muted px-1 py-0.5">.local/web-keys.json</code>{t.studio.providers.privacyAfter}
       </div>
+
+      {/* 系统 Claude Code 体检/急救：被别的软件或手动写坏时一键恢复官方登录 */}
+      <ClaudeHealthCard />
 
       {/* 零配置推荐：探测到本机已装订阅制 CLI 时，引导一键切换，绕开 key 墙 */}
       {showRecommend && (
@@ -241,6 +277,7 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
                   <ProviderRow
                     key={m.id}
                     name={displayName(m.id, m.name)}
+                    logo={providerLogo(m.id)}
                     statusLine={st.line}
                     statusTone={st.tone}
                     flagship={m.flagship}
@@ -248,6 +285,7 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
                     active={eff === m.id}
                     onSetActive={() => onSetActive(m.id)}
                     onEdit={() => setEditing({ kind: "api", id: m.id, name: displayName(m.id, m.name), hint: displayHint(m.id, m.hint), defaultBaseUrl: m.defaultBaseUrl, suggestions: m.modelSuggestions, signupUrl: m.signupUrl })}
+                    onDuplicate={() => duplicateProvider(m.id, displayName(m.id, m.name), m.defaultBaseUrl, m.modelSuggestions?.[0])}
                   />
                 );
               })}
@@ -258,12 +296,14 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
                   <ProviderRow
                     key={m.id}
                     name={m.name}
+                    logo={providerLogo(m.id)}
                     statusLine={st.line}
                     statusTone={st.tone}
                     sponsor={m.sponsor}
                     active={eff === m.id}
                     onSetActive={() => onSetActive(m.id)}
                     onEdit={() => setEditing({ kind: "api", id: m.id, name: m.name, hint: m.note || m.homepageUrl, defaultBaseUrl: m.baseUrl, suggestions: m.modelSuggestions, signupUrl: m.signupUrl })}
+                    onDuplicate={() => duplicateProvider(m.id, m.name, m.baseUrl, m.defaultModel || m.modelSuggestions?.[0])}
                   />
                 );
               })}
@@ -329,7 +369,7 @@ export function ProvidersPanel({ active, onSetActive }: { active: string; onSetA
                 <RelayVendorRow
                   key={r.name}
                   preset={r}
-                  onConfigure={(cliId) => setEditing({ kind: "cli-relay", id: cliId, name: PROVIDER_LABELS[cliId] ?? cliId, globalWrite: CLI_RELAY_GLOBAL_WRITE.has(cliId), initialBaseUrl: r.baseUrls[cliId] })}
+                  onConfigure={(cliId) => setEditing({ kind: "cli-relay", id: cliId, name: PROVIDER_LABELS[cliId] ?? cliId, globalWrite: CLI_RELAY_GLOBAL_WRITE.has(cliId), initialBaseUrl: r.baseUrls[cliId], initialSonnetModel: r.sonnetModel, initialOpusModel: r.opusModel, initialHaikuModel: r.haikuModel })}
                 />
               ))}
               {cliItems.map(({ name: id, installed }) => {

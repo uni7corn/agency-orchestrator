@@ -2,7 +2,7 @@ import { ArrowLeft, Check, Download, ExternalLink, Eye, EyeOff, Loader2, Plug, P
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { api, CLI_RELAY_PRESETS, CUSTOM_PROVIDER_PRESETS, type CliRelayPreset, type ConfigResponse } from "@/lib/studio";
+import { api, CLI_RELAY_PRESETS, CUSTOM_PROVIDER_PRESETS, groupModelsByVendor, providerLogo, type CliRelayPreset, type ConfigResponse } from "@/lib/studio";
 import { cn } from "@/lib/utils";
 
 /**
@@ -14,9 +14,12 @@ import { cn } from "@/lib/utils";
 export type ConfigTarget =
   | { kind: "api"; id: string; name: string; hint?: string; defaultBaseUrl?: string; suggestions?: string[]; isCustom?: boolean; customMeta?: { note?: string; homepageUrl?: string }; signupUrl?: string }
   // initialBaseUrl：从主列表的中转商行进来时预填该中转商的端点
-  | { kind: "cli-relay"; id: string; name: string; globalWrite?: boolean; initialBaseUrl?: string }
+  // initial{Sonnet,Opus,Haiku,}Model：预设自带模型映射时（如声算云那种带前缀命名的中转），
+  // 选中转即预填三档 → 对齐 cc-switch「选预设=模型也填好」的零手填体验
+  | { kind: "cli-relay"; id: string; name: string; globalWrite?: boolean; initialBaseUrl?: string; initialSonnetModel?: string; initialOpusModel?: string; initialHaikuModel?: string; initialModel?: string }
   | { kind: "ollama" }
-  | { kind: "add-custom" };
+  // prefill：从某个供应商「复制为供应商」时带过来的预填值（品牌端点 + 选定模型 + 建议名/标识）
+  | { kind: "add-custom"; prefill?: { id?: string; name?: string; baseUrl?: string; model?: string; note?: string } };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -47,22 +50,31 @@ export function ProviderConfigView({
   const isRelay = target.kind === "cli-relay";
   const isOllama = target.kind === "ollama";
   const isEditCustom = target.kind === "api" && !!target.isCustom;
+  // 「复制为供应商」带来的预填（新建自定义供应商时用品牌端点+选定模型打底）
+  const addPrefill = target.kind === "add-custom" ? target.prefill : undefined;
 
   // 通用字段（中转商行进来时 initialBaseUrl 优先——用户点的就是"用这家"，即使之前存过别家）
   const [key, setKey] = useState("");
   const [baseUrl, setBaseUrl] = useState(
-    (isRelay && (target as { initialBaseUrl?: string }).initialBaseUrl) || status?.baseUrl || (isOllama ? "http://localhost:11434" : ""),
+    (isRelay && (target as { initialBaseUrl?: string }).initialBaseUrl) || status?.baseUrl || addPrefill?.baseUrl || (isOllama ? "http://localhost:11434" : ""),
   );
-  const [model, setModel] = useState(status?.model ?? "");
+  // 已配置过(status)优先，其次预设自带的模型初值，最后空 —— 选中转预设时三档自动填好
+  const relayInit = isRelay ? (target as { initialSonnetModel?: string; initialOpusModel?: string; initialHaikuModel?: string; initialModel?: string }) : {};
+  const [model, setModel] = useState(status?.model ?? relayInit.initialModel ?? addPrefill?.model ?? "");
+  // claude-code 中转的模型映射（Sonnet/Opus/Haiku 档位 → 中转商实际模型，对齐 cc-switch）
+  const isCcRelay = isRelay && target.kind === "cli-relay" && target.id === "claude-code";
+  const [sonnetModel, setSonnetModel] = useState(status?.sonnetModel ?? relayInit.initialSonnetModel ?? "");
+  const [opusModel, setOpusModel] = useState(status?.opusModel ?? relayInit.initialOpusModel ?? "");
+  const [haikuModel, setHaikuModel] = useState(status?.haikuModel ?? relayInit.initialHaikuModel ?? "");
   const [show, setShow] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [backups, setBackups] = useState<string[] | null>(null);
 
   // add-custom / edit-custom 共用的元数据字段（编辑内置供应商时这些是只读展示,不用 state）
-  const [customId, setCustomId] = useState("");
-  const [customName, setCustomName] = useState(isEditCustom ? (target as { name: string }).name : "");
-  const [note, setNote] = useState(isEditCustom ? ((target as { customMeta?: { note?: string } }).customMeta?.note ?? "") : "");
+  const [customId, setCustomId] = useState(addPrefill?.id ?? "");
+  const [customName, setCustomName] = useState(isEditCustom ? (target as { name: string }).name : (addPrefill?.name ?? ""));
+  const [note, setNote] = useState(isEditCustom ? ((target as { customMeta?: { note?: string } }).customMeta?.note ?? "") : (addPrefill?.note ?? ""));
   const [homepageUrl, setHomepageUrl] = useState(isEditCustom ? ((target as { customMeta?: { homepageUrl?: string } }).customMeta?.homepageUrl ?? "") : "");
 
   // 模型列表拉取
@@ -76,6 +88,7 @@ export function ProviderConfigView({
   const providerId = target.kind === "api" || target.kind === "cli-relay" ? target.id : target.kind === "ollama" ? "ollama" : customId.trim();
   const displayTitle = isAdd ? p.addCustomProvider : target.kind === "ollama" ? "Ollama" : (target as { name: string }).name;
   const avatarChar = (isAdd ? (customName || "+") : displayTitle).slice(0, 1).toUpperCase();
+  const logo = !isAdd ? providerLogo(providerId) : undefined;
   // base_url 输入的 placeholder：内置供应商显示真实默认端点,一眼知道留空会用什么
   const baseUrlPlaceholder =
     target.kind === "api" && target.defaultBaseUrl ? target.defaultBaseUrl
@@ -103,12 +116,19 @@ export function ProviderConfigView({
     setFetchingModels(true);
     setFetchError(null);
     try {
+      // claude-code 中转端点是 Anthropic 协议根路径（如 api.cubence.com），
+      // 模型列表在 /v1/models —— 给 base 补 /v1 并声明 anthropic 协议
+      const rawBase = baseUrl.trim().replace(/\/+$/, "");
+      const effBase = isCcRelay && rawBase && !/\/v1$/.test(rawBase) ? `${rawBase}/v1` : rawBase;
       const r = await api.providerModels({
         provider: isAdd ? undefined : providerId,
-        baseUrl: baseUrl.trim() || undefined,
+        baseUrl: effBase || undefined,
         apiKey: key.trim() || undefined,
+        protocol: isCcRelay ? "anthropic" : undefined,
       });
       if (r.ok && r.models) setFetchedModels(r.models);
+      // 没填 key 又被中转拒绝(401/未设置 key)时,别把原始 JSON 甩给用户,给一句可操作的引导
+      else if (!key.trim() && /401|403|未设置 API key|authentication|credential/i.test(r.error || "")) setFetchError(p.fetchNeedsKey);
       else setFetchError(r.error || "failed");
     } catch (e: any) {
       setFetchError(e?.message || String(e));
@@ -167,7 +187,10 @@ export function ProviderConfigView({
         await api.updateCustomProvider(providerId, { name: customName.trim(), note, homepageUrl });
       }
       const r = await api.saveConfig(
-        isOllama ? { provider: "ollama", baseUrl, model } : { provider: providerId, apiKey: key, baseUrl, model: isRelay ? undefined : model },
+        isOllama ? { provider: "ollama", baseUrl, model }
+        // claude-code 中转：默认模型 + 三档映射一起保存（空串=清掉该档）
+        : isCcRelay ? { provider: providerId, apiKey: key, baseUrl, model, sonnetModel, opusModel, haikuModel }
+        : { provider: providerId, apiKey: key, baseUrl, model: isRelay ? undefined : model },
       );
       setKey("");
       setBackups(r.backups && r.backups.length > 0 ? r.backups : null);
@@ -197,6 +220,25 @@ export function ProviderConfigView({
   const labelCls = "mb-1 block text-xs font-medium text-muted-foreground";
   const modelChips = fetchedModels ?? (target.kind === "api" ? target.suggestions ?? [] : []);
 
+  // 生效配置预览（对齐 cc-switch 的「配置 JSON」透明度）：AO 不写全局配置文件，
+  // 注入的是 AO 所启动 CLI 子进程的环境变量——预览的就是保存后实际生效的那份 env。
+  const envPreview = isCcRelay
+    ? JSON.stringify(
+        {
+          env: {
+            ANTHROPIC_BASE_URL: baseUrl.trim() || undefined,
+            ANTHROPIC_AUTH_TOKEN: key.trim() ? "••••••" : status?.hasKey ? p.envPreviewSaved : undefined,
+            ...(model.trim() ? { ANTHROPIC_MODEL: model.trim() } : {}),
+            ...(sonnetModel.trim() ? { ANTHROPIC_DEFAULT_SONNET_MODEL: sonnetModel.trim() } : {}),
+            ...(opusModel.trim() ? { ANTHROPIC_DEFAULT_OPUS_MODEL: opusModel.trim() } : {}),
+            ...(haikuModel.trim() ? { ANTHROPIC_DEFAULT_HAIKU_MODEL: haikuModel.trim() } : {}),
+          },
+        },
+        null,
+        2,
+      )
+    : "";
+
   return (
     <div className="fixed inset-0 z-[58] overflow-auto bg-background">
       {/* 顶栏：返回 + 头像 + 标题 */}
@@ -205,9 +247,13 @@ export function ProviderConfigView({
           <button onClick={onClose} className="grid size-9 shrink-0 place-items-center rounded-xl border border-border/70 text-muted-foreground hover:text-foreground" title={p.backToList}>
             <ArrowLeft className="size-4" />
           </button>
-          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary/80 to-fuchsia-500/80 text-sm font-bold text-white">
-            {avatarChar}
-          </span>
+          {logo ? (
+            <img src={logo} alt="" className="size-9 shrink-0 rounded-xl object-contain" onError={(e) => (e.currentTarget.style.display = "none")} />
+          ) : (
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary/80 to-fuchsia-500/80 text-sm font-bold text-white">
+              {avatarChar}
+            </span>
+          )}
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-base font-bold leading-tight">{isAdd ? p.addCustomProvider : `${p.editProviderTitle} · ${displayTitle}`}</h2>
             {target.kind === "api" && target.hint && (
@@ -406,7 +452,62 @@ export function ProviderConfigView({
             )}
           </Section>
 
-          {/* 模型（中转不需要——中转商用 CLI 自己的模型协商） */}
+          {/* claude-code 中转的模型映射（对齐 cc-switch）：Sonnet/Opus/Haiku 档位 →
+              中转商实际上架的模型；「获取模型列表」直接从中转端点拉真实清单填 datalist */}
+          {isCcRelay && (
+            <Section title={p.sectionModelMap}>
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-xs text-muted-foreground">{p.modelMapHint}</p>
+                <button
+                  type="button"
+                  onClick={fetchModels}
+                  disabled={fetchingModels}
+                  title={p.fetchModelsHint}
+                  className="flex shrink-0 items-center gap-1 rounded-lg border border-border/70 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                >
+                  {fetchingModels ? <Loader2 className="size-3 animate-spin" /> : <Download className="size-3" />}
+                  {p.fetchModels}
+                </button>
+              </div>
+              {fetchError && <p className="text-[11px] text-red-500">{fetchError}</p>}
+              {fetchedModels && (
+                <p className="text-[11px] text-muted-foreground">{p.modelsFetchedPre}{fetchedModels.length}{p.modelsFetchedPost}</p>
+              )}
+              <datalist id="cc-relay-models">
+                {(fetchedModels ?? []).map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+              {[
+                { label: "Sonnet", env: "ANTHROPIC_DEFAULT_SONNET_MODEL", val: sonnetModel, set: setSonnetModel },
+                { label: "Opus", env: "ANTHROPIC_DEFAULT_OPUS_MODEL", val: opusModel, set: setOpusModel },
+                { label: "Haiku", env: "ANTHROPIC_DEFAULT_HAIKU_MODEL", val: haikuModel, set: setHaikuModel },
+                { label: p.modelMapDefaultLabel, env: "ANTHROPIC_MODEL", val: model, set: setModel },
+              ].map((row) => (
+                <div key={row.env} className="grid grid-cols-[92px_1fr] items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">{row.label}</span>
+                  <input
+                    list="cc-relay-models"
+                    value={row.val}
+                    onChange={(e) => row.set(e.target.value)}
+                    placeholder={row.env}
+                    autoComplete="off"
+                    className={cn(inputCls, "font-mono text-xs")}
+                  />
+                </div>
+              ))}
+            </Section>
+          )}
+
+          {/* 生效配置预览：保存后注入 AO 所启动 CLI 的环境变量（只读,不写全局配置文件） */}
+          {isCcRelay && (
+            <Section title={p.sectionEnvPreview}>
+              <p className="text-xs text-muted-foreground">{p.envPreviewHint}</p>
+              <pre className="overflow-x-auto rounded-xl border border-border/60 bg-muted/30 p-3 font-mono text-xs leading-relaxed text-foreground/90">{envPreview}</pre>
+            </Section>
+          )}
+
+          {/* 模型（其余中转不需要——中转商用 CLI 自己的模型协商） */}
           {!isRelay && (
             <Section title={p.sectionModel}>
               <div>
@@ -432,23 +533,50 @@ export function ProviderConfigView({
                     {p.modelsFetchedPre}{fetchedModels.length}{p.modelsFetchedPost}
                   </p>
                 )}
-                {modelChips.length > 0 && (
-                  <div className="mt-1.5 flex max-h-44 flex-wrap gap-1.5 overflow-auto">
-                    {modelChips.map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => setModel(m)}
-                        className={cn(
-                          "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
-                          model === m ? "border-primary bg-primary/10 text-primary" : "border-border/70 text-muted-foreground hover:border-primary/40 hover:text-foreground",
-                        )}
-                      >
-                        {m}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {modelChips.length > 0 &&
+                  (modelChips.length > 12 ? (
+                    // 大列表(通常是拉到的真实全量):按厂商分组,像 cc-switch 那样可扫读,不再一堆平铺
+                    <div className="mt-1.5 max-h-60 space-y-2 overflow-auto pr-1">
+                      {groupModelsByVendor(modelChips).map(([vendor, ms]) => (
+                        <div key={vendor}>
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                            {vendor} · {ms.length}
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {ms.map((m) => (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => setModel(m)}
+                                className={cn(
+                                  "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
+                                  model === m ? "border-primary bg-primary/10 text-primary" : "border-border/70 text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                                )}
+                              >
+                                {m}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-1.5 flex max-h-44 flex-wrap gap-1.5 overflow-auto">
+                      {modelChips.map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => setModel(m)}
+                          className={cn(
+                            "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
+                            model === m ? "border-primary bg-primary/10 text-primary" : "border-border/70 text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                          )}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
               </div>
             </Section>
           )}
