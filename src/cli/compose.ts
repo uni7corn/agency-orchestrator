@@ -10,6 +10,59 @@ import { resolve, relative } from 'node:path';
 import { createConnector } from '../connectors/factory.js';
 import type { LLMConfig } from '../types.js';
 import { t } from '../i18n.js';
+import yaml from 'js-yaml';
+
+// ── R3.1/R3.2 预算档（--budget）：把「轻活」步骤降到便宜档，「重活」步骤保持默认贵档 ──
+// 各 provider 的「便宜档」模型；没有更便宜档的（如 deepseek 默认就是便宜的 deepseek-chat）不列 → --budget 对其为 no-op。
+const BUDGET_LIGHT_MODEL: Record<string, string> = {
+  claude: 'claude-haiku-4-5-20251001',
+  openai: 'gpt-5.4-mini',
+  apinebula: 'gpt-5.4-mini',
+  rootflowai: 'claude-haiku-4-5-20251001',
+  cubence: 'claude-haiku-4-5-20251001',
+  ccsub: 'claude-haiku-4-5-20251001',
+  // deepseek：默认若走贵的 reasoner，轻活降到便宜的 chat；默认已是 chat 时则 no-op（light===topModel）
+  deepseek: 'deepseek-chat',
+};
+// 「轻活」词（抽取/汇总/格式化/罗列/翻译/润色…）→ 可降档；「重活」词（分析/设计/评审/创作…）→ 保贵档。
+// 保守策略：重活优先，命中难词或不确定一律保贵档，只对明确的轻活降档，护住关键质量。
+// 明确的「把 X 重塑成 Y」动作（整理成/格式化/翻译成…）——这类步骤只是重组已有内容，
+// 即便 task 里引用了上游的「洞察/分析」等名词，本身也是轻活。优先级高于 HARD，修掉误判。
+const REFORMAT_RE = /整理成|整理为|归纳成|汇总成|格式化|排版成|排好版|输出成|润色|校对|翻译成|翻译为|改写成|精简成|reformat|format into|rewrite as|translate|proofread|polish/i;
+const HARD_TASK_RE = /分析|设计|架构|评审|审查|判断|决策|创作|撰写|写作|方案|策略|规划|论证|洞察|architect|analy|design|review|judge|strateg|\bplan|reason|critique|creat|writ/i;
+const LIGHT_TASK_RE = /抽取|提取|汇总|归纳|整理|罗列|列出|列表|格式化|排版|翻译|校对|润色|清洗|去重|标注|摘要|summar|extract|format|translat|proofread|\blist|organi[sz]e|categor|clean/i;
+
+function classifyStepTier(step: { role?: string; task?: string }): 'light' | 'hard' {
+  const text = `${step?.role ?? ''} ${step?.task ?? ''}`;
+  if (REFORMAT_RE.test(text)) return 'light';   // 明确的重塑动作 → 轻活（优先，纠正"引用难词名词"的误判）
+  if (HARD_TASK_RE.test(text)) return 'hard';   // 其次：命中难词一律保贵档
+  if (LIGHT_TASK_RE.test(text)) return 'light';
+  return 'hard';                                 // 不确定 → 保贵档（保守，护质量）
+}
+
+/** 对已生成的 workflow YAML 施加预算分档：给「轻活」步骤加 step.llm.model=便宜档。返回新 YAML + 一句说明。 */
+export function applyBudgetTiering(yamlText: string, provider: string): { yaml: string; note?: string } {
+  const light = BUDGET_LIGHT_MODEL[provider];
+  if (!light) return { yaml: yamlText, note: `--budget：provider "${provider}" 无更便宜档位可降（可能默认已是便宜档），未改动` };
+  let doc: any;
+  try { doc = yaml.load(yamlText); } catch { return { yaml: yamlText }; }
+  if (!doc || !Array.isArray(doc.steps)) return { yaml: yamlText };
+  const topModel = doc.llm?.model;
+  let downgraded = 0;
+  for (const step of doc.steps) {
+    if (!step || typeof step !== 'object') continue;
+    if (step.llm?.model) continue;                // 步骤已显式指定模型 → 尊重，不覆盖
+    if (classifyStepTier(step) === 'light' && light !== topModel) {
+      step.llm = { ...(step.llm ?? {}), model: light };
+      downgraded++;
+    }
+  }
+  if (downgraded === 0) return { yaml: yamlText, note: '--budget：没有可降档的轻活步骤（都判为重活或已指定模型），未改动' };
+  return {
+    yaml: yaml.dump(doc, { lineWidth: -1 }),
+    note: `--budget：${downgraded}/${doc.steps.length} 个轻活步骤降到便宜档 ${light}（重活步骤保持默认，省钱不掉关键质量）`,
+  };
+}
 
 /** 精简的角色摘要，供 LLM 选角色用 */
 export interface RoleSummary {
@@ -373,6 +426,8 @@ export async function composeWorkflow(options: {
   pinnedRoles?: string[];
   /** 保存目录；默认 workflows/。用于把合成结果写到用户目录而非随包模板目录 */
   saveDir?: string;
+  /** R3.2 预算模式：把「轻活」步骤自动降到便宜档，省钱不掉关键质量（默认关，零回归） */
+  budget?: boolean;
 }): Promise<{ yaml: string; savedPath: string; relativePath: string; warnings: string[] }> {
   const { description, agentsDir, llmConfig } = options;
   const lang = options.lang ?? detectLang(description);
@@ -516,7 +571,7 @@ export async function composeWorkflow(options: {
         // 重试后仍有变量引用错误 → 走 fix 链（autoFix → LLM 二次修复）
         const finalErrors = await runVariableFixChain(savedPath, second.errors, validateGenerated, llmConfig, lang);
         warnings.push(...finalErrors);
-        const fixedYaml = readFileSync(savedPath, 'utf-8').trim();
+        const fixedYaml = finalizeBudget(readFileSync(savedPath, 'utf-8').trim(), options, llmConfig.provider, savedPath, warnings);
         return { yaml: fixedYaml, savedPath, relativePath, warnings };
       }
     } catch (err) {
@@ -527,8 +582,17 @@ export async function composeWorkflow(options: {
   // 首次生成无幻觉角色 → 直接走变量 fix 链
   const finalErrors = await runVariableFixChain(savedPath, first.errors, validateGenerated, llmConfig, lang);
   warnings.push(...finalErrors);
-  const finalYaml = readFileSync(savedPath, 'utf-8').trim();
+  const finalYaml = finalizeBudget(readFileSync(savedPath, 'utf-8').trim(), options, llmConfig.provider, savedPath, warnings);
   return { yaml: finalYaml, savedPath, relativePath, warnings };
+}
+
+/** budget 模式收尾：施加分档、写回盘、把说明加入 warnings（供 CLI 回显）。非 budget 原样返回。 */
+function finalizeBudget(yamlText: string, options: { budget?: boolean }, provider: string, savedPath: string, warnings: string[]): string {
+  if (!options.budget) return yamlText;
+  const { yaml: out, note } = applyBudgetTiering(yamlText, provider);
+  if (note) warnings.push(note);
+  if (out !== yamlText) writeFileSync(savedPath, out + '\n', 'utf-8');
+  return out;
 }
 
 /**

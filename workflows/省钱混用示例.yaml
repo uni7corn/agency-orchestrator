@@ -1,0 +1,58 @@
+name: "省钱混用示例：便宜模型干轻活，强模型干重活"
+description: "演示 per-step 模型覆写（step.llm）——把简单步骤放到便宜/快的档位，把需要深度推理的步骤留给强模型，整体更省钱且不掉关键质量。抄这个模板即可。"
+
+agents_dir: "agency-agents-zh"
+
+# 顶层 llm = 默认档位（没写 step.llm 的步骤都用它）。这里用便宜的 deepseek-chat 打底。
+llm:
+  provider: "deepseek"
+  model: "deepseek-chat"
+  max_tokens: 8192
+
+concurrency: 2
+
+inputs:
+  - name: topic
+    description: "要分析的主题"
+    required: true
+
+steps:
+  # 【轻活 · 用默认便宜档】结构化抽取/罗列——推理强度低，便宜模型足够。
+  - id: gather
+    role: "product/product-trend-researcher"
+    task: |
+      针对主题「{{topic}}」，快速列出：
+      1. 5 个公众讨论角度
+      2. 3 个核心问题
+      3. 3 个常见误区
+      只做罗列，不做深度论证。
+    output: raw_points
+    # 不写 step.llm → 沿用顶层 deepseek-chat（便宜）
+
+  # 【重活 · 每步覆写成强推理档】需要洞察/判断/取舍——这一步值得花强模型。
+  - id: analyze
+    role: "academic/academic-narratologist"
+    task: |
+      基于以下要点，做深度分析：给出 3 个大多数人没想到的深层观点，
+      并指出其中最反直觉但站得住脚的一个，说明推理链条。
+
+      要点：
+      {{raw_points}}
+    output: deep_analysis
+    depends_on: [gather]
+    # ↓↓↓ 关键：这一步覆写模型为更强的推理档，只在需要的步骤花钱
+    llm:
+      provider: "deepseek"
+      model: "deepseek-reasoner"
+
+  # 【轻活 · 回到默认便宜档】把上一步结果整理成干净输出——格式化，便宜模型足够。
+  - id: format
+    role: "marketing/marketing-content-creator"
+    task: |
+      把下面的分析整理成一段结构清晰、可直接发布的短文（300-500 字），
+      不新增观点，只做组织与润色。
+
+      分析：
+      {{deep_analysis}}
+    depends_on: [analyze]
+    # 不写 step.llm → 沿用顶层 deepseek-chat（便宜）

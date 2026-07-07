@@ -30,6 +30,7 @@ export class OllamaConnector implements LLMConnector {
           options: {
             num_predict: numPredict,
             num_ctx: numCtx,
+            ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
           },
         }),
       });

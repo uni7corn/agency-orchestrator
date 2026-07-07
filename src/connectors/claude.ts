@@ -32,6 +32,7 @@ export class ClaudeConnector implements LLMConnector {
       {
         model: config.model!,
         max_tokens: config.max_tokens || 4096,
+        ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
         system: systemPrompt,
         messages: [
           { role: 'user', content: userMessage },

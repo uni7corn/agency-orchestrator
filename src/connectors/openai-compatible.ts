@@ -106,6 +106,7 @@ export class OpenAICompatibleConnector implements LLMConnector {
           body: JSON.stringify({
             model: config.model!,
             [this.tokenParam]: config.max_tokens || 4096,
+            ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
             stream: true,
             messages,
           }),

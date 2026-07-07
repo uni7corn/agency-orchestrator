@@ -19,6 +19,7 @@ import { listAgents, filterAgentsByKeyword } from './agents/loader.js';
 import { run, findAgentsDir, compareWorkflowVsBaseline } from './index.js';
 import { detectInstalledCliProviders } from './providers/detect.js';
 import { API_PROVIDERS, API_PROVIDER_MAP } from './connectors/api-providers.js';
+import { diagnoseClaudeConfig, repairClaudeConfig } from './utils/claude-repair.js';
 import { formatValidationReport, buildValidationReport } from './cli/validate-report.js';
 import { parseInputPairs } from './cli/parse-inputs.js';
 import { formatCompareReport } from './cli/compare-report.js';
@@ -79,6 +80,9 @@ async function main(): Promise<void> {
     case 'compose':
       await handleCompose();
       break;
+    case 'doctor':
+      await handleDoctor();
+      break;
     case 'team':
       await handleTeam();
       break;
@@ -107,7 +111,7 @@ async function main(): Promise<void> {
       break;
     default: {
       // 容错：用户可能漏了空格，如 "planworkflows/x.yaml"
-      const knownCmds = ['run', 'validate', 'plan', 'explain', 'compose', 'team', 'prompt', 'skills', 'demo', 'roles', 'install', 'init', 'serve', 'web', 'upgrade'];
+      const knownCmds = ['run', 'validate', 'plan', 'explain', 'compose', 'doctor', 'team', 'prompt', 'skills', 'demo', 'roles', 'install', 'init', 'serve', 'web', 'upgrade'];
       const match = knownCmds.find(c => command.startsWith(c) && command.length > c.length);
       if (match) {
         console.error(`看起来少了个空格？试试:\n  ao ${match} ${command.slice(match.length)}\n`);
@@ -178,8 +182,9 @@ async function handleRun(): Promise<void> {
   try {
     // --provider / --model / --base-url / --api-key / --timeout: 命令行覆盖 YAML 中的 LLM 配置
     const cliProviders = ['claude-code', 'gemini-cli', 'copilot-cli', 'codex-cli', 'openclaw-cli', 'hermes-cli'];
+    const runTemperature = parseTemperatureArg();
     let llmOverride: Partial<LLMConfig> | undefined;
-    if (provider || model || baseUrl || apiKey || timeoutMs !== undefined) {
+    if (provider || model || baseUrl || apiKey || timeoutMs !== undefined || runTemperature !== undefined) {
       llmOverride = {};
       if (provider) {
         llmOverride.provider = provider;
@@ -191,6 +196,7 @@ async function handleRun(): Promise<void> {
       }
       if (baseUrl) llmOverride.base_url = baseUrl;
       if (apiKey) llmOverride.api_key = apiKey;
+      if (runTemperature !== undefined) llmOverride.temperature = runTemperature;
       // --timeout 最后赋值，优先级高于 CLI provider 自动 600s
       if (timeoutMs !== undefined) llmOverride.timeout = timeoutMs;
     }
@@ -362,8 +368,9 @@ async function handleExplain(): Promise<void> {
 
 async function handleCompose(): Promise<void> {
   const autoRun = args.includes('--run');
+  const budget = args.includes('--budget');
   // 描述是第一个非 flag 的参数（跳过 compose 本身和 --xxx 的值）
-  const flagsWithValue = new Set(['--name', '--provider', '--model', '--agents-dir', '--lang', '--base-url', '--baseurl', '--api-key', '--apikey', '--timeout']);
+  const flagsWithValue = new Set(['--name', '--provider', '--model', '--agents-dir', '--lang', '--base-url', '--baseurl', '--api-key', '--apikey', '--timeout', '--temperature']);
   let description: string | undefined;
   for (let i = 1; i < args.length; i++) {
     if (args[i] === '--run') continue;
@@ -384,6 +391,8 @@ async function handleCompose(): Promise<void> {
     console.error('');
     console.error('选项:');
     console.error('  --run                生成后立即运行（一句话出结果）');
+    console.error('  --budget             省钱模式：轻活步骤自动降到便宜档，重活保持强档（默认关）');
+    console.error('  --temperature <值>   采样温度 0~2（0=近确定性、可复现；不设=用模型默认）');
     console.error('  --name <filename>   自定义输出文件名 (不含 .yaml 后缀)');
     console.error('  --provider <name>   LLM 提供商 (默认 deepseek)');
     console.error('  --model <name>      模型名 (默认 deepseek-chat)');
@@ -410,6 +419,13 @@ async function handleCompose(): Promise<void> {
   );
   const baseUrl = getArgValue('--base-url') || getArgValue('--baseurl');
   const apiKey = getArgValue('--api-key') || getArgValue('--apikey');
+  const composeTemperature = parseTemperatureArg();
+  // R2.1 首跑引导：确定无凭证时，给「三选一」路径而不是让底层 connector 抛晦涩错误
+  // （新用户没装 CLI、没配 key 时会兜底成 deepseek 但无 DEEPSEEK_API_KEY → 直接撞墙）。
+  if (!composeProviderHasCredentials(provider, apiKey, baseUrl)) {
+    printFirstRunGuide(provider);
+    process.exit(1);
+  }
   const composeTimeoutRaw = getArgValue('--timeout');
   let composeTimeoutMs: number | undefined;
   if (composeTimeoutRaw !== undefined) {
@@ -436,9 +452,11 @@ async function handleCompose(): Promise<void> {
         model,
         ...(baseUrl ? { base_url: baseUrl } : {}),
         ...(apiKey ? { api_key: apiKey } : {}),
+        ...(composeTemperature !== undefined ? { temperature: composeTemperature } : {}),
       },
       outputName,
       autoRun,
+      budget,
       lang: composeLang,
       timeoutMs: composeTimeoutMs,
       saveDir: defaultWorkflowsDir('workflows'),
@@ -578,6 +596,119 @@ function autoProvider(explicit: string | undefined, fallback: string): string {
   }
   // 3) 都没有 → 兜底默认
   return fallback;
+}
+
+/**
+ * ao doctor —— 环境自检：一条命令看清 provider/凭证/CLI/系统 Claude Code 哪里不对。
+ * `--fix`：若检测到系统 ~/.claude 被劫持（假 token / 中转地址顶掉官方登录），一键清除恢复（写前自动备份）。
+ */
+async function handleDoctor(): Promise<void> {
+  const fix = args.includes('--fix');
+  console.log('\n  🩺 ao doctor —— 环境自检\n');
+  let problems = 0;
+
+  // 1) 本机已装的订阅制 CLI（零配置可用）
+  const installed = detectInstalledCliProviders();
+  console.log(installed.length
+    ? `  ✅ 已装 CLI（零配置可用）：${installed.join(', ')}`
+    : `  ·  未检测到订阅制 CLI（claude-code / gemini-cli 等）`);
+
+  // 2) 环境变量里已配 key 的 API provider
+  const envKeys: Record<string, string> = { claude: 'ANTHROPIC_API_KEY', ...Object.fromEntries(API_PROVIDERS.map((p) => [p.id, p.envKey])) };
+  const keyed = Object.entries(envKeys).filter(([, k]) => process.env[k]).map(([id]) => id);
+  console.log(keyed.length
+    ? `  ✅ 环境变量已配 key：${keyed.join(', ')}`
+    : `  ·  没有 API provider 的 key（env）`);
+
+  // 3) 默认将使用的 provider 是否就绪（跑任务前最关键）
+  const def = autoProvider(process.env.AO_PROVIDER, 'deepseek');
+  const ready = composeProviderHasCredentials(def);
+  if (ready) {
+    console.log(`  ✅ 默认 provider：${def}（就绪，可直接跑）`);
+  } else {
+    problems++;
+    console.log(`  ❌ 默认 provider "${def}" 无凭证 —— 直接跑任务会失败`);
+  }
+
+  // 4) 系统 Claude Code 健康（复用 claude-repair 的诊断）
+  const diag = diagnoseClaudeConfig();
+  if (diag.healthy) {
+    console.log(`  ✅ 系统 Claude Code：正常（~/.claude 未被劫持）`);
+  } else {
+    problems++;
+    const where = diag.baseUrl ? `（请求被改道到 ${diag.baseUrl}）` : '';
+    console.log(`  ❌ 系统 Claude Code：被劫持 ${where} —— 官方登录失效`);
+    if (fix) {
+      const r = repairClaudeConfig();
+      if (r.changed) {
+        console.log(`     ↳ 已清除劫持配置（原文件已备份）。请重启 Claude Code 并 /login 重新登录。`);
+        for (const f of r.files) if (f.backup) console.log(`       备份：${f.backup}`);
+        problems--;
+      }
+      if (r.shellOverridesRemaining.length) console.log(`     ⚠️ shell 里仍有残留（需手动删）：${r.shellOverridesRemaining.join(', ')}`);
+    } else {
+      console.log(`     ↳ 跑 \`ao doctor --fix\` 一键恢复（写前自动备份）`);
+    }
+  }
+
+  console.log('');
+  if (problems === 0) {
+    console.log(`  🎉 一切就绪，直接 \`ao compose "一句话" --run\` 开跑。\n`);
+  } else {
+    console.log(`  发现 ${problems} 个问题。`);
+    if (!ready) printFirstRunGuide(def);
+  }
+}
+
+/** 解析 --temperature（0~2），非法即退出；未设置返回 undefined（用模型默认）。 */
+function parseTemperatureArg(): number | undefined {
+  const raw = getArgValue('--temperature');
+  if (raw === undefined) return undefined;
+  const temp = Number(raw);
+  if (Number.isNaN(temp) || temp < 0 || temp > 2) {
+    console.error(`--temperature 值无效: "${raw}"（应为 0~2 的数字，如 0 / 0.7 / 1）`);
+    process.exit(1);
+  }
+  return temp;
+}
+
+const COMPOSE_CLI_PROVIDERS = ['claude-code', 'gemini-cli', 'copilot-cli', 'codex-cli', 'openclaw-cli', 'hermes-cli'];
+
+/** R2.1：判断 compose 要用的 provider 是否已有可用凭证。保守——不确定时返回 true（不拦已能跑的配置）。 */
+function composeProviderHasCredentials(provider: string, apiKey?: string, baseUrl?: string): boolean {
+  if (apiKey || baseUrl) return true;                 // 显式 --api-key / --base-url
+  if (COMPOSE_CLI_PROVIDERS.includes(provider)) return detectInstalledCliProviders().includes(provider);
+  if (provider === 'ollama') return true;             // 本地，无需 key（连不上由运行时兜底提示）
+  const envKey = provider === 'claude' ? 'ANTHROPIC_API_KEY' : API_PROVIDER_MAP[provider]?.envKey;
+  if (!envKey) return true;                            // 自定义/未知 provider 无已知 envKey → 不拦
+  return !!process.env[envKey];
+}
+
+/** R2.1：无凭证时打印「三选一」首跑引导，把「撞墙」变「选路」。 */
+function printFirstRunGuide(provider: string): void {
+  const installed = detectInstalledCliProviders();
+  const L = (s = '') => console.error(s);
+  L('');
+  L('  ⚠️  还没有可用的模型凭证 —— 先选一条路（大多 30 秒搞定）：');
+  L('');
+  if (installed.length > 0) {
+    L(`  ① 用本机已装的 CLI（零配置、复用登录态、不额外花钱）：`);
+    L(`       ao compose "…" --run --provider ${installed[0]}`);
+  } else {
+    L(`  ① 装个订阅制 CLI（零配置）：如 claude-code / gemini-cli，装好并登录后：`);
+    L(`       ao compose "…" --run --provider claude-code`);
+  }
+  L('');
+  L(`  ② 用「送额度」的中转（几十秒拿 key，一个 key 通 Claude/GPT/Gemini 全家桶）：`);
+  L(`       · CCSub  注册送 $5 → https://www.ccsub.net/register?ref=8G5W4JK4`);
+  L(`       · Cubence           → https://cubence.com/signup?code=SCW29JP9&source=agency`);
+  L(`       拿到 key：ao compose "…" --run --provider ccsub --api-key <你的key>`);
+  L('');
+  L(`  ③ 本地免费跑（需先装 Ollama 并拉好模型，建议 70B+）：`);
+  L(`       ao compose "…" --run --provider ollama --model llama3`);
+  L('');
+  L(`  （当前默认 provider 是 "${provider}"，未检测到它的凭证；配好后重跑即可）`);
+  L('');
 }
 
 /** 解析 provider/model（CLI flag > env > 自动探测 > 兜底默认），team 可提供默认 provider/model。 */
