@@ -81,6 +81,19 @@ const Ctx = createContext<RunManagerValue | null>(null);
 
 let counter = 0;
 
+// 长任务（工作流跑几分钟很常见）完成/失败时，用户多半已切去别的窗口——系统通知
+// 把人叫回来，是"跑完了没人知道"这个留存漏点的最小修复。仅在页面不可见时才弹。
+function notifyRunEnd(title: string, ok: boolean, body: string) {
+  try {
+    if (typeof Notification === "undefined" || typeof document === "undefined") return;
+    if (document.visibilityState === "visible") return;
+    if (Notification.permission !== "granted") return;
+    new Notification(`${ok ? "✅" : "❌"} ${title}`, { body });
+  } catch {
+    /* 通知失败绝不影响运行本身 */
+  }
+}
+
 export function RunProvider({ children }: { children: ReactNode }) {
   const { t } = useLanguage();
   const runsRef = useRef<Map<string, RunInstance>>(new Map());
@@ -93,6 +106,13 @@ export function RunProvider({ children }: { children: ReactNode }) {
     (request: RunRequest): string => {
       const id = `run-${++counter}`;
       const ctrl = new AbortController();
+
+      // 借用户点「运行」这个手势申请通知权限（浏览器要求在用户手势里请求）
+      try {
+        if (typeof Notification !== "undefined" && Notification.permission === "default") {
+          void Notification.requestPermission();
+        }
+      } catch { /* noop */ }
 
       const seeded: LiveStep[] =
         request.kind === "role"
@@ -201,11 +221,13 @@ export function RunProvider({ children }: { children: ReactNode }) {
             } else if (inst.state !== "error") {
               inst.state = "done";
             }
+            notifyRunEnd(inst.title, inst.state === "done", inst.state === "done" ? t.studio.run.notifyDoneBody : t.studio.run.notifyFailBody);
             break;
           }
           case "error":
             inst.error = data.message || t.studio.run.runError;
             inst.state = "error";
+            notifyRunEnd(inst.title, false, t.studio.run.notifyFailBody);
             break;
         }
         touch();

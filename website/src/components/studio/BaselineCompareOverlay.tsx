@@ -19,7 +19,8 @@ export function BaselineCompareOverlay({
 }: {
   wf: Workflow;
   inputs: Record<string, string>;
-  provider: string;
+  /** 缺省 = 让后端用默认 provider（RunViewer 里 run.source.provider 本就可选） */
+  provider?: string;
   onClose: () => void;
 }) {
   const { lang } = useLanguage();

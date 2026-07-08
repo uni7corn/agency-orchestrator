@@ -6,6 +6,7 @@ const { app, BrowserWindow, shell, dialog, Menu } = require("electron");
 const { spawn, execFileSync } = require("node:child_process");
 const path = require("node:path");
 const os = require("node:os");
+const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
 
@@ -14,6 +15,12 @@ const DEFAULT_PORT = Number(process.env.AO_DESKTOP_PORT || 8799);
 let port = DEFAULT_PORT; // 实际端口在启动时确定（可能因占用而顺延）
 let backend = null;
 let mainWindow = null;
+// 引擎日志/退出现场：打包后的 app 没有终端，启动失败时这是唯一可排查的信息
+// （群反馈只看到"启动失败"没法定位的根因——之前 stdio:"inherit" 输出全丢）。
+let logStream = null;
+let logPath = "";
+let stderrTail = "";
+let backendExit = null;
 
 const base = () => `http://127.0.0.1:${port}/`;
 const studioUrl = () => {
@@ -108,6 +115,18 @@ function findFreePort(start, tries = 20) {
 
 function startBackend() {
   const serverPath = path.join(ROOT, "web", "server.js");
+  try {
+    const dir = path.join(app.getPath("userData"), "logs");
+    fs.mkdirSync(dir, { recursive: true });
+    logPath = path.join(dir, "engine.log");
+    try { logStream && logStream.end(); } catch { /* noop */ }
+    logStream = fs.createWriteStream(logPath, { flags: "a" });
+    logStream.write(`\n===== boot ${new Date().toISOString()} port=${port} =====\n`);
+  } catch {
+    logStream = null;
+  }
+  backendExit = null;
+  stderrTail = "";
   backend = spawn(process.execPath, [serverPath], {
     cwd: ROOT,
     env: {
@@ -119,9 +138,19 @@ function startBackend() {
       PORT: String(port),
       HOST: "127.0.0.1",
     },
-    stdio: "inherit",
+    stdio: ["ignore", "pipe", "pipe"],
   });
-  backend.on("exit", () => {
+  const feed = (chunk, isErr) => {
+    const text = chunk.toString();
+    // stderr 末尾 2KB 常驻内存——启动失败对话框直接把崩溃原因摆到用户眼前
+    if (isErr) stderrTail = (stderrTail + text).slice(-2000);
+    try { logStream && logStream.write(text); } catch { /* noop */ }
+  };
+  backend.stdout.on("data", (c) => feed(c, false));
+  backend.stderr.on("data", (c) => feed(c, true));
+  backend.on("exit", (code, signal) => {
+    backendExit = { code, signal };
+    try { logStream && logStream.write(`===== engine exit code=${code} signal=${signal || ""} =====\n`); } catch { /* noop */ }
     backend = null;
   });
 }
@@ -158,39 +187,120 @@ async function waitHealth(timeoutMs = 40000) {
   return false;
 }
 
+// ── 更新检查：启动后静默查 GitHub 最新 desktop-v* release，有新版弹一次提示 ──
+// 不做静默自动更新（需要签名/更新服务器），只提示 + 一键跳转下载页——旧版本没有
+// 任何更新入口，用户根本不知道有新版。AO_DESKTOP_NO_UPDATE_CHECK=1 可关闭。
+const RELEASES_API = "https://api.github.com/repos/jnMetaCode/agency-orchestrator/releases?per_page=30";
+function semverNewer(a, b) {
+  // a > b ? 比较 "0.2.7" 风格；解析失败按不更新处理
+  const pa = String(a).split(".").map((n) => parseInt(n, 10));
+  const pb = String(b).split(".").map((n) => parseInt(n, 10));
+  for (let i = 0; i < 3; i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (Number.isNaN(x) || Number.isNaN(y)) return false;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+let updateChecked = false; // 每次进程只查一次——关窗再开（复用引擎路径）不重复弹
+async function checkForUpdate(win) {
+  if (process.env.AO_DESKTOP_NO_UPDATE_CHECK === "1" || updateChecked) return;
+  updateChecked = true;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    const r = await fetch(RELEASES_API, {
+      signal: ctrl.signal,
+      headers: { "user-agent": "agency-orchestrator-desktop", accept: "application/vnd.github+json" },
+    });
+    clearTimeout(timer);
+    if (!r.ok) return;
+    const releases = await r.json();
+    const latest = (Array.isArray(releases) ? releases : []).find(
+      (rel) => rel && !rel.draft && !rel.prerelease && /^desktop-v\d/.test(rel.tag_name || ""),
+    );
+    if (!latest) return;
+    const latestVer = latest.tag_name.replace(/^desktop-v/, "");
+    if (!semverNewer(latestVer, app.getVersion())) return;
+    if (win.isDestroyed()) return;
+    const { response } = await dialog.showMessageBox(win, {
+      type: "info",
+      title: "Agency Orchestrator",
+      message: `发现新版本 v${latestVer}（当前 v${app.getVersion()}）`,
+      detail: latest.name && latest.name !== latest.tag_name ? latest.name : "包含最新功能与修复，建议更新。",
+      buttons: ["前往下载", "本次忽略"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (response === 0) shell.openExternal(latest.html_url);
+  } catch {
+    /* 离线/被墙/接口限流 → 静默跳过，绝不打扰启动 */
+  }
+}
+
 // 启动引擎并把窗口指向 Studio；失败时给出可重试的原生对话框，而不是静默白屏。
 async function boot(win) {
   win.loadURL(splashHtml("正在启动本地引擎…"));
+  // 引擎还活着且健康（macOS 关窗不退出、从 Dock 再次打开 / 双击二次启动聚焦）→ 直接复用。
+  // 以前这里无条件重新找空闲端口：自家健康引擎占着 8799，新窗口被顺延到 8800，又因
+  // backend 非空跳过启动，最后去 ping 一个没人监听的端口 → 必然"启动失败"。这就是
+  // 大量用户反馈"关掉后再打开必报错、重装（=完全退出）才能好"的根因。
+  if (backend && (await ping())) {
+    win.loadURL(studioUrl());
+    checkForUpdate(win);
+    return;
+  }
+  if (backend) stopBackend(); // 进程还在但不健康 → 杀掉重来，别留半死的占着端口
   try {
     port = await findFreePort(DEFAULT_PORT);
   } catch {
     /* 极端情况下找不到空闲端口，仍尝试默认端口 */
     port = DEFAULT_PORT;
   }
-  if (!backend) startBackend();
+  startBackend();
   const ok = await waitHealth();
   if (win.isDestroyed()) return; // 用户在启动期间关掉了窗口
   if (ok) {
     win.loadURL(studioUrl());
+    // 引擎就绪后再查更新，不挡启动路径
+    setTimeout(() => checkForUpdate(win), 3000);
     return;
   }
-  // 引擎没起来：明确告知 + 重试/退出，避免白屏。
-  win.loadURL(splashHtml("本地引擎未能启动。可能端口被占用或启动超时。", false));
-  const { response } = await dialog.showMessageBox(win, {
-    type: "error",
-    title: "Agency Orchestrator",
-    message: "本地引擎启动失败",
-    detail: "端口可能被占用，或启动超时。可重试，或退出后重新打开应用。",
-    buttons: ["重试", "退出"],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true,
-  });
-  if (response === 0) {
-    stopBackend();
-    await boot(win);
-  } else {
-    app.quit();
+  // 引擎没起来：把真实原因（进程崩溃 vs 等待超时）+ 崩溃输出 + 日志路径摆出来，
+  // 而不是笼统怪"端口被占用"（端口本就自动顺延，几乎不可能是它）。
+  const crashed = !!backendExit;
+  win.loadURL(splashHtml(crashed ? "本地引擎启动后异常退出。" : "本地引擎未能就绪（等待超时）。", false));
+  const tail = stderrTail.trim().split("\n").filter(Boolean).slice(-4).join("\n");
+  const detail =
+    (crashed
+      ? `引擎进程启动后退出（代码 ${backendExit.code ?? "?"}${backendExit.signal ? " / " + backendExit.signal : ""}）。`
+      : `等待引擎就绪超时（已自动选用空闲端口 ${port}）。`) +
+    (tail ? `\n\n最近错误输出：\n${tail}` : "") +
+    (logPath ? `\n\n完整日志：${logPath}` : "") +
+    `\n\n提示：端口无需手动修改（从 ${DEFAULT_PORT} 起自动顺延）；如需固定端口，启动前设置环境变量 AO_DESKTOP_PORT。`;
+  for (;;) {
+    const { response } = await dialog.showMessageBox(win, {
+      type: "error",
+      title: "Agency Orchestrator",
+      message: crashed ? "本地引擎启动后异常退出" : "本地引擎启动超时",
+      detail,
+      buttons: ["重试", "打开日志", "退出"],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    });
+    if (response === 1) {
+      if (logPath) shell.showItemInFolder(logPath);
+      continue; // 看完日志回到对话框，用户再决定重试/退出
+    }
+    if (response === 0) {
+      stopBackend();
+      await boot(win);
+    } else {
+      app.quit();
+    }
+    return;
   }
 }
 

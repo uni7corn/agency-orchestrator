@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { api, type Role } from "@/lib/studio";
 import { demoRoleContent } from "@/lib/demo";
+import type { ChatRole } from "./ChatPanel";
 import { Markdown } from "./Markdown";
 import { RoleAvatar } from "./RoleAvatar";
-import type { RunRequest } from "./RunManager";
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -31,16 +31,15 @@ async function copyText(text: string): Promise<boolean> {
 
 export function RoleDetail({
   role,
-  provider,
   onClose,
-  onRun,
+  onChat,
   demo,
   onInstallPrompt,
 }: {
   role: Role;
-  provider: string;
   onClose: () => void;
-  onRun: (r: RunRequest) => void;
+  /** 打开统一聊天面板：带该角色人设的多轮对话；seed = 输入框里已敲的第一条消息 */
+  onChat: (seed: string | undefined, role: ChatRole) => void;
   demo?: boolean;
   onInstallPrompt?: () => void;
 }) {
@@ -76,12 +75,11 @@ export function RoleDetail({
   }, [role, lang, demo]);
 
   const chat = () => {
-    if (!task.trim()) return;
     if (demo) {
       onInstallPrompt?.();
       return;
     }
-    onRun({ kind: "role", title: `${t.studio.roles.singleChat} · ${role.name}`, role: seed, name: role.name, task: task.trim(), provider: provider || undefined, lang });
+    onChat(task.trim() || undefined, { path: seed, name: role.name, color: role.color });
     onClose();
   };
 
@@ -152,7 +150,7 @@ export function RoleDetail({
               placeholder={`${t.studio.roles.askPrefix}${role.name}${t.studio.roles.askSuffix}`}
               className="h-10 flex-1 rounded-xl border border-border/70 bg-card/60 px-3 text-sm outline-none focus:border-primary/50"
             />
-            <Button onClick={chat} disabled={!task.trim()}>
+            <Button onClick={chat}>
               <MessageSquare className="size-4" />
               {t.studio.roles.chat}
             </Button>

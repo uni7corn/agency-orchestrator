@@ -11,7 +11,7 @@ import { downloadExport, type Workflow } from "@/lib/studio";
 import { track } from "@/lib/track";
 import { cn } from "@/lib/utils";
 
-export function RunViewer({ onViewHistory }: { onViewHistory?: () => void }) {
+export function RunViewer({ onViewHistory, onGoProviders }: { onViewHistory?: () => void; onGoProviders?: () => void }) {
   const { t, lang } = useLanguage();
   const { runs, openId, open, stop, rerunWithFeedback, submitInput } = useRunManager();
   const run = runs.find((r) => r.id === openId) || null;
@@ -120,7 +120,24 @@ export function RunViewer({ onViewHistory }: { onViewHistory?: () => void }) {
         {/* body */}
         <div ref={scrollRef} className="flex-1 overflow-auto p-5">
           {run.error && (
-            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{run.error}</div>
+            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">
+              {run.error}
+              {/* 认证类错误不能是死路：报错 → 一键跳到密钥配置，闭环掉"看着 401 干瞪眼" */}
+              {onGoProviders && /401|403|unauthor|invalid.{0,8}(key|token)|api.?key|认证|未设置|无效/i.test(run.error) && (
+                <div className="mt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      open(null);
+                      onGoProviders();
+                    }}
+                  >
+                    {t.studio.run.goConfigureKey}
+                  </Button>
+                </div>
+              )}
+            </div>
           )}
           {showTerminal ? (
             <pre className="overflow-auto rounded-xl border border-border/70 bg-[#0b0e16] p-4 font-mono text-xs leading-relaxed text-white/80">
