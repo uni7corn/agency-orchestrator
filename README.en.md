@@ -20,7 +20,8 @@
 > If you find this useful, please **Star** it — helps others discover the project.
 
 <p align="center">
-  <img src="./demo.gif" alt="ao compose --run demo" width="700">
+  <img src="./demo-studio-en.gif" alt="Web Studio: one sentence, AI builds the team" width="820"><br/>
+  <em>Web Studio: type one sentence, AI builds a team from 200+ experts and runs it</em>
 </p>
 
 ---
@@ -28,11 +29,6 @@
 ## Web Studio (GUI)
 
 Prefer not to use the command line? Run `ao web` locally and pick experts, run workflows, view outputs, and intervene live — all in a GUI, fully bilingual (EN/中文).
-
-<p align="center">
-  <img src="./docs/screenshots/studio-roles-en.png" alt="Studio · Build a Team: pick from 200+ experts, AI composes the team" width="800"><br/>
-  <em>Build a Team: pick from 200+ experts; AI composes and runs the team</em>
-</p>
 
 <p align="center">
   <img src="./docs/screenshots/studio-workflows-en.png" alt="Studio · Workflows: run built-in templates with one click" width="800"><br/>
@@ -45,9 +41,15 @@ Prefer not to use the command line? Run `ao web` locally and pick experts, run w
 
 ## One Sentence, Full Result
 
+Prefer the command line? One command, one sentence, full result:
+
 ```bash
 ao compose "I'm a programmer looking to start a side hustle with AI content, target $3K/month, give me a complete plan" --run
 ```
+
+<p align="center">
+  <img src="./demo.gif" alt="ao compose CLI demo" width="700">
+</p>
 
 5 AI roles collaborate automatically:
 
