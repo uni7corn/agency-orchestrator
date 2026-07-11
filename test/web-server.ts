@@ -87,7 +87,9 @@ try {
       ],
       edges: [{ id: 'a->b', source: 'a', target: 'b' }],
     };
-    assert(await post(base, '/api/workflows/graph', okBody) === 200, '/api/workflows/graph 合法图 → 200 保存');
+    const graphSave = await fetch(base + '/api/workflows/graph', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(okBody) });
+    assert(graphSave.status === 200, '/api/workflows/graph 合法图 → 200 保存');
+    const savedFile: string = graphSave.status === 200 ? (await graphSave.json()).file : '';
     // QA #6：缺 edges 数组 → 400（不静默清空依赖）
     assert(await post(base, '/api/workflows/graph', { name: 't', baseYaml, nodes: okBody.nodes }) === 400, '/api/workflows/graph 缺 edges → 400');
     // QA #14：节点缺 role → 400
@@ -96,6 +98,33 @@ try {
     // 成环：a → b → a，validateWorkflow 应拒
     const cycleBody = { ...okBody, edges: [{ id: 'a->b', source: 'a', target: 'b' }, { id: 'b->a', source: 'b', target: 'a' }] };
     assert(await post(base, '/api/workflows/graph', cycleBody) === 400, '/api/workflows/graph 成环 → 400 被校验拦截');
+    // #91：变量名对但缺依赖边（b 用 {{out_a}} 却没连 a→b）→ 保存时确定性补边，200 + autoFixes
+    const missingEdgeBody = {
+      name: 'canvas-autofix-test', baseYaml,
+      nodes: [
+        { id: 'a', position: { x: 0, y: 0 }, data: { id: 'a', role: 'x/y', task: 't1', output: 'out_a' } },
+        { id: 'b', position: { x: 200, y: 0 }, data: { id: 'b', role: 'x/y', task: 'use {{out_a}}', output: 'out_b' } },
+      ],
+      edges: [],
+    };
+    const fixSave = await fetch(base + '/api/workflows/graph', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(missingEdgeBody) });
+    const fixBody = fixSave.status === 200 ? await fixSave.json() : { autoFixes: [] };
+    assert(fixSave.status === 200, '/api/workflows/graph 缺依赖边 → 200 自动补边保存(#91)');
+    assert(Array.isArray(fixBody.autoFixes) && fixBody.autoFixes.length === 1 && fixBody.autoFixes[0].step === 'b' && fixBody.autoFixes[0].addedDep === 'a', 'autoFixes 返回补边明细 b←a');
+    if (fixBody.file) await fetch(base + '/api/workflows?file=' + encodeURIComponent(fixBody.file), { method: 'DELETE' });
+
+    // ── 用户工作流删除 DELETE /api/workflows（#92）──
+    const del = (file: string) => fetch(base + '/api/workflows?file=' + encodeURIComponent(file), { method: 'DELETE' });
+    assert((await del('../../../../etc/passwd')).status === 403, 'DELETE /api/workflows 路径穿越 → 403');
+    const builtin = (wfs as Array<{ file: string; private?: boolean }>).find((w) => !w.private)?.file;
+    if (builtin) assert((await del(builtin)).status === 403, 'DELETE /api/workflows 内置模板 → 403 不可删');
+    if (savedFile) {
+      const listed = (await (await fetch(base + '/api/workflows')).json()) as Array<{ file: string; private?: boolean; deletable?: boolean; mtime?: number }>;
+      const mine = listed.find((w) => w.file === savedFile);
+      assert(!!mine && mine.private === true && mine.deletable === true && typeof mine.mtime === 'number', '用户工作流带 private/deletable/mtime 标记');
+      assert((await del(savedFile)).status === 200, 'DELETE /api/workflows 用户工作流 → 200 删除');
+      assert((await del(savedFile)).status === 404, 'DELETE /api/workflows 已删文件再删 → 404');
+    }
 
     // ── 报告导出 /api/export ──
     assert(await post(base, '/api/export', { format: 'docx' }) === 400, '/api/export 缺 markdown → 400');

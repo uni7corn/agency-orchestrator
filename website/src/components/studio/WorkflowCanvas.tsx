@@ -200,15 +200,30 @@ export function WorkflowCanvas({ file, name, onClose, onSaved }: { file: string;
       const outNodes: CanvasNode[] = nodes.map((n) => ({ id: n.id, position: n.position, data: { ...n.data, id: n.id } }));
       const outEdges: CanvasEdge[] = edges.map((e) => ({ id: e.id, source: e.source, target: e.target }));
       const res = await api.saveWorkflowGraph({ file, name, nodes: outNodes, edges: outEdges });
-      setMsg(res.overwritten ? "✅ 已保存（就地覆盖）" : `✅ 已另存为新工作流`);
+      const fixNote = res.autoFixes?.length ? `，自动补了 ${res.autoFixes.length} 条缺失的依赖连线` : "";
+      setMsg(`✅ ${res.overwritten ? "已保存（就地覆盖）" : "已另存为新工作流"}${fixNote}`);
+      // 服务端补了边的话，把画布同步成落盘后的真实形状（否则用户看到的图少几条线）
+      if (res.autoFixes?.length) {
+        setEdges((eds) => {
+          const next = [...eds];
+          for (const f of res.autoFixes!) {
+            if (!next.some((e) => e.source === f.addedDep && e.target === f.step)) {
+              next.push({ id: `${f.addedDep}->${f.step}`, source: f.addedDep, target: f.step });
+            }
+          }
+          return next;
+        });
+      }
       onSaved?.(res.file);
     } catch (e: any) {
-      const errs = e?.errors as string[] | undefined;
+      // postJSON 把结构化错误体挂在 e.body 上——之前读 e.errors 永远是 undefined，
+      // 用户只看到 "invalid workflow"，不知道哪步错（#91 的"删了还是报错"体感来源）
+      const errs = (e?.body?.errors ?? e?.errors) as string[] | undefined;
       setMsg(`❌ 保存失败：${errs?.length ? errs.join("；") : e?.message || "未知错误"}`);
     } finally {
       setSaving(false);
     }
-  }, [nodes, edges, file, name, onSaved]);
+  }, [nodes, edges, file, name, onSaved, setEdges]);
 
   const stop = useCallback((e: React.MouseEvent) => e.stopPropagation(), []);
 

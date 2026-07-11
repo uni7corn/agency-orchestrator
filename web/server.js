@@ -349,7 +349,7 @@ const WF_FEATURED = new Set([
   '软件开发标准流程.yaml', 'codex-cc-loop.yaml', 'content-pipeline.yaml', 'product-review.yaml', 'meeting-notes.yaml',
 ]);
 
-function loadWorkflowMeta(dir, tagPrivate = false) {
+function loadWorkflowMeta(dir, tagPrivate = false, deletable = false) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
@@ -397,6 +397,10 @@ function loadWorkflowMeta(dir, tagPrivate = false) {
           }),
           provider: doc?.llm?.provider,
           private: tagPrivate,
+          // 「我的工作流」按创建/修改时间倒序展示（#92：列表顺序不可预期）
+          mtime: statSync(full).mtimeMs,
+          // 仅 COMPOSED_DIR（自动组队/画布保存的）可删；内置模板与外部用户目录不可删
+          deletable,
         };
       } catch {
         return null;
@@ -412,9 +416,22 @@ app.get('/api/workflows', (req, res) => {
   const all = [
     ...loadWorkflowMeta(builtinDir, false),
     ...(USER_WORKFLOWS_DIR ? loadWorkflowMeta(USER_WORKFLOWS_DIR, true) : []),
-    ...(existsSync(COMPOSED_DIR) ? loadWorkflowMeta(COMPOSED_DIR, true) : []),
+    ...(existsSync(COMPOSED_DIR) ? loadWorkflowMeta(COMPOSED_DIR, true, true) : []),
   ];
   res.json(all);
+});
+
+// ── Delete a user workflow (#92) ──
+// 只允许删 COMPOSED_DIR 里的（自动组队/画布保存的）；内置模板和 AO_USER_WORKFLOWS_DIR
+// （外部自管目录，可能是用户的 git 仓库）一律 403，不做例外。
+app.delete('/api/workflows', (req, res) => {
+  const file = req.query.file;
+  if (!file || typeof file !== 'string') return res.status(400).json({ error: 'invalid file' });
+  const resolved = resolve(file);
+  if (!isInside(resolved, COMPOSED_DIR)) return res.status(403).json({ error: 'only user-composed workflows can be deleted' });
+  if (!existsSync(resolved)) return res.status(404).json({ error: 'file not found' });
+  unlinkSync(resolved);
+  res.json({ ok: true });
 });
 
 // ── History: list past runs ──
@@ -1018,10 +1035,30 @@ app.post('/api/workflows/graph', async (req, res) => {
   try {
     const { graphToWorkflow } = await import('../dist/canvas/graph.js');
     const { validateWorkflow } = await import('../dist/core/parser.js');
-    const yamlText = graphToWorkflow({ name: String(name || 'workflow'), nodes, edges }, base);
+    let yamlText = graphToWorkflow({ name: String(name || 'workflow'), nodes, edges }, base);
     // 保存前用引擎校验挡环 / 坏依赖 / 非法 loop（不校验角色文件存在，结构有效即可）。
-    const def = yaml.load(yamlText);
-    const errors = validateWorkflow(def);
+    let def = yaml.load(yamlText);
+    let errors = validateWorkflow(def);
+    // #91：自动组队产物最常见的错是"变量名对、但缺 depends_on 边"——compose 链路已有
+    // 确定性补边修复（#87），画布保存之前没接，导致弹窗能跑、进画布却怎么改都存不了。
+    // 这里套用同一套修复（只补边，不改名——autoFixVariableRefs 的模糊改名对用户已有
+    // 工作流太激进，不用），修完再校验，仍有错才拒。修复函数是文件级文本补丁，走临时文件。
+    let autoFixes = [];
+    if (errors.length > 0) {
+      const tmpFix = join(tmpdir(), `ao-canvas-autofix-${process.pid}-${Date.now()}.yaml`);
+      try {
+        writeFileSync(tmpFix, yamlText, 'utf-8');
+        const { autoFixMissingDependsOn } = await import('../dist/cli/compose.js');
+        const fix = await autoFixMissingDependsOn(tmpFix);
+        if (fix.fixed > 0) {
+          yamlText = readFileSync(tmpFix, 'utf-8');
+          def = yaml.load(yamlText);
+          errors = validateWorkflow(def);
+          autoFixes = fix.details;
+        }
+      } catch { /* 修复自身出错不阻塞——按原始校验错误拒绝 */ }
+      finally { try { unlinkSync(tmpFix); } catch { /* 临时文件可能没写成 */ } }
+    }
     if (errors.length > 0) return res.status(400).json({ error: 'invalid workflow', errors });
 
     mkdirSync(COMPOSED_DIR, { recursive: true });
@@ -1035,7 +1072,7 @@ app.post('/api/workflows/graph', async (req, res) => {
     }
     if (!isInside(outPath, COMPOSED_DIR)) return res.status(400).json({ error: 'bad path' });
     writeFileSync(outPath, yamlText.endsWith('\n') ? yamlText : yamlText + '\n', 'utf-8');
-    res.json({ file: outPath, overwritten: !!overwritePath });
+    res.json({ file: outPath, overwritten: !!overwritePath, autoFixes });
   } catch (err) { res.status(500).json({ error: err?.message || String(err) }); }
 });
 

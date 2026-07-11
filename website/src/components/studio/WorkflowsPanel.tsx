@@ -1,4 +1,4 @@
-import { Check, GitCompare, Loader2, Play, Scale, Search, Star, Workflow as WorkflowIcon, X } from "lucide-react";
+import { Check, Download, GitCompare, Loader2, Play, Scale, Search, Star, Trash2, Workflow as WorkflowIcon, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { Button } from "@/components/ui/button";
@@ -164,12 +164,15 @@ export function WorkflowsPanel({ provider, onRun, demo, onInstallPrompt }: { pro
     return wfs.filter((w) => !n || (w.name + (w.description ?? "")).toLowerCase().includes(n));
   }, [wfs, q]);
 
-  // 分组：⭐ 推荐置顶，其余按类目（开发 → 内容 → 商业 → 职场 → 我的 → 其他）。治"太多、不知道用哪个"。
-  const CATEGORY_ORDER = ["开发", "内容创作", "商业 / 产品", "职场 / 学术", "我的工作流", "其他"];
+  // 分组：「我的工作流」最顶（用户自己组/存的是核心资产，按最近修改倒序，#92），
+  // 其次 ⭐ 常用，再按类目（开发 → 内容 → 商业 → 职场 → 其他）。治"太多、不知道用哪个"。
+  const CATEGORY_ORDER = ["开发", "内容创作", "商业 / 产品", "职场 / 学术", "其他"];
   const groups = useMemo(() => {
-    const fav = filtered.filter((w) => favs.has(w.file));
+    const mine = filtered.filter((w) => w.private).sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0));
+    const fav = filtered.filter((w) => favs.has(w.file) && !w.private);
     const byCat = new Map<string, Workflow[]>();
     for (const w of filtered) {
+      if (w.private) continue; // 我的工作流只在顶部分区出现，不再混入类目
       // 收藏的也仍按类目展示一份，方便浏览；顶部「常用」组只是把它们额外置顶。
       const c = w.category || "其他";
       if (!byCat.has(c)) byCat.set(c, []);
@@ -179,7 +182,7 @@ export function WorkflowsPanel({ provider, onRun, demo, onInstallPrompt }: { pro
       const ia = CATEGORY_ORDER.indexOf(a), ib = CATEGORY_ORDER.indexOf(b);
       return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
     });
-    return { fav, cats: cats.map((c) => [c, byCat.get(c)!] as [string, Workflow[]]) };
+    return { mine, fav, cats: cats.map((c) => [c, byCat.get(c)!] as [string, Workflow[]]) };
   }, [filtered, favs]);
 
   const pickedList = Object.values(picked);
@@ -205,6 +208,50 @@ export function WorkflowsPanel({ provider, onRun, demo, onInstallPrompt }: { pro
     track("compare_open", { from: "card" });
     if (w.inputs && w.inputs.length) setInputsFor(w); // 复用输入对话框（含「对比单次」按钮）
     else setBaseline({ wf: w, inputs: {} });
+  };
+
+  // 下载 YAML 原文（#98）：拿走即可在 CLI / Claude Code / 别的机器直接用
+  const downloadOne = async (w: Workflow) => {
+    if (demo) return onInstallPrompt?.();
+    track("workflow_download", { file: w.filename });
+    try {
+      const text = await api.workflowYaml(w.file);
+      const url = URL.createObjectURL(new Blob([text], { type: "text/yaml" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = w.filename || `${w.name}.yaml`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      window.alert((lang === "en" ? "Download failed: " : "下载失败：") + (e instanceof Error ? e.message : String(e)));
+    }
+  };
+
+  // 删除用户工作流（#92）：仅 deletable（自动组队/画布保存的）；服务端再限一层目录
+  const deleteOne = async (w: Workflow) => {
+    if (!window.confirm(lang === "en" ? `Delete "${w.name}"? This cannot be undone.` : `删除「${w.name}」？此操作不可恢复。`)) return;
+    track("workflow_delete", { file: w.filename });
+    try {
+      await api.deleteWorkflow(w.file);
+      setWfs((p) => p.filter((x) => x.file !== w.file));
+      setPicked((p) => {
+        if (!p[w.file]) return p;
+        const n = { ...p };
+        delete n[w.file];
+        return n;
+      });
+      setFavs((prev) => {
+        if (!prev.has(w.file)) return prev;
+        const n = new Set(prev);
+        n.delete(w.file);
+        setFavWorkflows(n);
+        return n;
+      });
+    } catch (e) {
+      window.alert((lang === "en" ? "Delete failed: " : "删除失败：") + (e instanceof Error ? e.message : String(e)));
+    }
   };
 
   if (loading)
@@ -278,6 +325,14 @@ export function WorkflowsPanel({ provider, onRun, demo, onInstallPrompt }: { pro
                   <Button size="sm" variant="ghost" onClick={() => compareOne(w)} title={lang === "en" ? "Compare vs single-shot" : "对比单次基线（看多智能体到底强在哪）"}>
                     <Scale className="size-3.5" />
                   </Button>
+                  <Button size="sm" variant="ghost" onClick={() => downloadOne(w)} title={lang === "en" ? "Download YAML (use in CLI / anywhere)" : "下载 YAML（可在 CLI / 其他机器直接用）"}>
+                    <Download className="size-3.5" />
+                  </Button>
+                  {w.deletable && !demo && (
+                    <Button size="sm" variant="ghost" onClick={() => deleteOne(w)} title={lang === "en" ? "Delete" : "删除此工作流"} className="text-muted-foreground hover:text-red-500">
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  )}
                   <Button size="sm" onClick={() => runOne(w)}>
                     <Play className="size-3.5" />
                     {t.studio.workflows.run}
@@ -287,18 +342,26 @@ export function WorkflowsPanel({ provider, onRun, demo, onInstallPrompt }: { pro
             </div>
           );
         };
-        const Section = ({ title, items, star }: { title: string; items: Workflow[]; star?: boolean }) => (
+        const Section = ({ title, items, star, hint }: { title: string; items: Workflow[]; star?: boolean; hint?: string }) => (
           <section className="mt-6">
             <h2 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-muted-foreground">
               {star && <Star className="size-3.5 fill-amber-400 text-amber-400" />}
               {title}
               <span className="font-normal text-muted-foreground/60">· {items.length}</span>
+              {hint && <span className="ml-1 truncate font-normal text-xs text-muted-foreground/60">{hint}</span>}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{items.map(renderCard)}</div>
           </section>
         );
         return (
           <>
+            {groups.mine.length > 0 && (
+              <Section
+                title={lang === "en" ? "My Workflows" : "我的工作流"}
+                items={groups.mine}
+                hint={lang === "en" ? "yours — composed or saved from canvas, newest first" : "自动组队 / 画布保存的都在这，按最近修改排序"}
+              />
+            )}
             {groups.fav.length > 0 && <Section title={lang === "en" ? "Favorites" : "常用（点 ☆ 收藏）"} items={groups.fav} star />}
             {groups.cats.map(([c, items]) => <Section key={c} title={c} items={items} />)}
             {filtered.length === 0 && <p className="mt-10 text-center text-sm text-muted-foreground">{lang === "en" ? "No matching workflows" : "没有匹配的工作流"}</p>}

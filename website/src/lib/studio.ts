@@ -35,6 +35,10 @@ export interface Workflow {
   private?: boolean;
   category?: string;
   featured?: boolean;
+  /** 文件修改时间(ms)——「我的工作流」按此倒序 */
+  mtime?: number;
+  /** 仅自动组队/画布保存的用户工作流可删（服务端限制在用户目录内） */
+  deletable?: boolean;
 }
 
 export interface RunStepSummary {
@@ -461,10 +465,18 @@ export const api = {
   role: (category: string, id: string, lang?: string) =>
     getJSON<Role>(`/roles/${category}/${id}${lang === "en" ? "?lang=en" : ""}`),
   workflows: (lang?: string) => getJSON<Workflow[]>(`/workflows${lang === "en" ? "?lang=en" : ""}`),
+  // 仅用户工作流可删（服务端限制目录）；下载复用 /workflows/yaml 原文
+  deleteWorkflow: (file: string) => delJSON<{ ok: boolean }>(`/workflows?file=${encodeURIComponent(file)}`),
+  workflowYaml: async (file: string): Promise<string> => {
+    const res = await fetch(`${API}/workflows/yaml?file=${encodeURIComponent(file)}`);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.text();
+  },
   // ── 可编辑画布：工作流 YAML ↔ graph（转换在引擎侧，前端只碰 graph JSON）──
   workflowGraph: (file: string) => getJSON<CanvasGraphResponse>(`/workflows/graph?file=${encodeURIComponent(file)}`),
   saveWorkflowGraph: (body: { file?: string; name: string; nodes: CanvasNode[]; edges: CanvasEdge[]; baseYaml?: string }) =>
-    postJSON<{ file: string; overwritten: boolean; errors?: string[] }>("/workflows/graph", body),
+    // autoFixes：保存时服务端确定性补上的缺失 depends_on 边（#91，同 compose #87 修复链）
+    postJSON<{ file: string; overwritten: boolean; errors?: string[]; autoFixes?: { step: string; addedDep: string }[] }>("/workflows/graph", body),
   runs: () => getJSON<RunSummary[]>("/runs"),
   run: (id: string) => getJSON<RunSummary>(`/runs/${encodeURIComponent(id)}`),
   // budget:true = 省钱模式，轻活步骤自动降便宜档（后端 R3.2，桌面/web 同一后端）
