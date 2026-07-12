@@ -1018,7 +1018,12 @@ app.post('/api/workflows/graph', async (req, res) => {
   // edges 必须显式传数组（可空=无依赖）。缺失则拒绝，避免把原工作流的依赖静默清空（QA #6）。
   if (!Array.isArray(edges)) return res.status(400).json({ error: 'edges must be an array (use [] for no dependencies)' });
   // 每个节点必须有非空 role，否则会存出跑不起来的工作流（QA #14）。
-  const roleless = nodes.filter((n) => !n?.data?.role || typeof n.data.role !== 'string' || !n.data.role.trim());
+  // 例外：approval / human_input 节点本来就没有 role（签字闸门/中途提问），不能误杀。
+  const roleless = nodes.filter((n) => {
+    const t = n?.data?.type;
+    if (t === 'approval' || t === 'human_input') return false;
+    return !n?.data?.role || typeof n.data.role !== 'string' || !n.data.role.trim();
+  });
   if (roleless.length > 0) return res.status(400).json({ error: `每个步骤都要选角色（${roleless.length} 个步骤缺 role）` });
   // 底稿：编辑既有工作流用其自身 YAML；否则用前端传来的 baseYaml（含 llm/agents_dir 等顶层）。
   let base = typeof baseYaml === 'string' ? baseYaml : '';

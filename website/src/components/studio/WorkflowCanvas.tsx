@@ -82,13 +82,13 @@ function AOStepNode({ id, data, selected }: NodeProps<Node<StepData>>) {
       <Handle type="target" position={Position.Left} className="!size-2.5 !bg-primary/60" />
       <div className="flex items-center gap-1.5">
         <span className="text-base leading-none">{String(data.emoji ?? "") || (isApproval ? "✋" : "🤖")}</span>
-        <span className="truncate text-sm font-semibold">{String(data.name ?? "") || role}</span>
+        <span className="truncate text-sm font-semibold">{String(data.name ?? "") || role || (data.type === "approval" ? "签字闸门" : data.type === "human_input" ? "等待输入" : "")}</span>
         {exec === "running" && <Loader2 className="size-3.5 shrink-0 animate-spin text-blue-500" />}
         {exec === "done" && <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />}
         {exec === "error" && <XCircle className="size-3.5 shrink-0 text-red-500" />}
         {!exec && !!data.skill && <span className="ml-auto rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">{String(data.skill)}</span>}
       </div>
-      <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">{String(data.task ?? "") || "—"}</p>
+      <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">{String(data.task ?? data.prompt ?? "") || "—"}</p>
       <Handle type="source" position={Position.Right} className="!size-2.5 !bg-primary/60" />
     </div>
   );
@@ -299,6 +299,22 @@ export function WorkflowCanvas({ file, name, onClose, onSaved }: { file: string;
                   <label className="mb-1 block text-xs text-muted-foreground">步骤 id</label>
                   <div className="mb-3 truncate rounded-lg bg-muted/50 px-2.5 py-1.5 text-xs">{selected.id}</div>
 
+                  {selected.data.type === "approval" || selected.data.type === "human_input" ? (
+                    <>
+                      {/* 签字闸门 / 等待输入节点：没有 role/task，只编辑提示语 */}
+                      <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/[0.08] px-2.5 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+                        {selected.data.type === "approval" ? "✋ 签字闸门：运行到此暂停，等你放行" : "✋ 等待输入：运行到此暂停，等你回答"}
+                      </div>
+                      <label className="mb-1 block text-xs text-muted-foreground">提示语（支持 {"{{变量}}"}）</label>
+                      <textarea
+                        value={String(selected.data.prompt ?? "")}
+                        onChange={(e) => patchSelected({ prompt: e.target.value })}
+                        rows={6}
+                        className="mb-4 w-full resize-y rounded-lg border border-border/70 bg-background px-2.5 py-2 text-xs outline-none focus:border-primary/50"
+                      />
+                    </>
+                  ) : (
+                    <>
                   <label className="mb-1 block text-xs text-muted-foreground">角色</label>
                   <select
                     value={String(selected.data.role ?? "")}
@@ -329,6 +345,15 @@ export function WorkflowCanvas({ file, name, onClose, onSaved }: { file: string;
                     className="mb-3 w-full resize-y rounded-lg border border-border/70 bg-background px-2.5 py-2 text-xs outline-none focus:border-primary/50"
                   />
 
+                  <label className="mb-1 block text-xs text-muted-foreground">验收标准（可选，产出必须满足）</label>
+                  <textarea
+                    value={String(selected.data.acceptance ?? "")}
+                    onChange={(e) => patchSelected({ acceptance: e.target.value || undefined })}
+                    rows={3}
+                    placeholder={"1. 可核对的条件…\n2. …"}
+                    className="mb-3 w-full resize-y rounded-lg border border-border/70 bg-background px-2.5 py-2 text-xs outline-none focus:border-primary/50"
+                  />
+
                   <label className="mb-1 block text-xs text-muted-foreground">skill（可选）</label>
                   <input
                     value={String(selected.data.skill ?? "")}
@@ -336,6 +361,8 @@ export function WorkflowCanvas({ file, name, onClose, onSaved }: { file: string;
                     placeholder="如 test-driven-development"
                     className="mb-4 h-9 w-full rounded-lg border border-border/70 bg-background px-2.5 text-xs outline-none focus:border-primary/50"
                   />
+                    </>
+                  )}
 
                   <Button
                     size="sm"

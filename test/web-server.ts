@@ -95,6 +95,20 @@ try {
     // QA #14：节点缺 role → 400
     const rolelessBody = { name: 't', baseYaml, edges: [], nodes: [{ id: 'a', position: { x: 0, y: 0 }, data: { id: 'a', task: 't1' } }] };
     assert(await post(base, '/api/workflows/graph', rolelessBody) === 400, '/api/workflows/graph 节点缺 role → 400');
+    // 但 approval / human_input 节点无 role 是合法形态，不能被 QA #14 守卫误杀
+    const approvalBody = {
+      name: 'canvas-approval-ok', baseYaml, edges: [{ id: 'a->gate', source: 'a', target: 'gate' }],
+      nodes: [
+        { id: 'a', position: { x: 0, y: 0 }, data: { id: 'a', role: 'x/y', task: 't1', output: 'out_a' } },
+        { id: 'gate', position: { x: 200, y: 0 }, data: { id: 'gate', type: 'approval', prompt: '确认继续？' } },
+      ],
+    };
+    const approvalSave = await fetch(base + '/api/workflows/graph', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(approvalBody) });
+    assert(approvalSave.status === 200, '/api/workflows/graph approval 节点无 role → 200 可保存');
+    if (approvalSave.status === 200) {
+      const f = (await approvalSave.json()).file;
+      await fetch(base + '/api/workflows?file=' + encodeURIComponent(f), { method: 'DELETE' });
+    }
     // 成环：a → b → a，validateWorkflow 应拒
     const cycleBody = { ...okBody, edges: [{ id: 'a->b', source: 'a', target: 'b' }, { id: 'b->a', source: 'b', target: 'a' }] };
     assert(await post(base, '/api/workflows/graph', cycleBody) === 400, '/api/workflows/graph 成环 → 400 被校验拦截');
