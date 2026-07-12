@@ -3,7 +3,7 @@ import type { Language } from "@/i18n/translations";
 /**
  * 赞助商数据。
  *
- * 当前赞助商：APINEBULA（旗舰，银河录像局旗下 AI 聚合平台）、优云智算（UCloud 旗下 AI 云平台）、RootFlowAI（大模型 API 聚合平台）、Cubence（API 中转服务商）、CCSub（AI API 中转平台）。
+ * 当前赞助商：APINEBULA（旗舰，银河录像局旗下 AI 聚合平台）、优云智算（UCloud 旗下 AI 云平台）、RootFlowAI（大模型 API 聚合平台）、Cubence（API 中转服务商）、CCSub（AI API 中转平台）、火山引擎（字节跳动云服务，中英文分别对应 volcengine.com / byteplus.com 两个不同站点）。
  * 均为真实付费赞助，非占位样例。新增赞助商时按 Sponsor 结构追加即可。
  */
 
@@ -22,7 +22,8 @@ export interface Sponsor {
   logo?: string;
   /** 大屏 banner 图（public 目录下的路径）。旗舰赞助商用,全宽展示 */
   banner?: string;
-  url: string;
+  /** 跳转链接。多数赞助商中英文共用同一个链接；少数品牌中国大陆站点和国际站点是不同域名（如火山引擎/BytePlus），此时传 LocalizedText，按当前语言取值 */
+  url: string | LocalizedText;
   tier: SponsorTier;
   tagline: LocalizedText;
   description: LocalizedText;
@@ -159,8 +160,38 @@ export const sponsors: Sponsor[] = [
       en: "$5 free credit on sign-up",
     },
   },
+  {
+    id: "volcengine",
+    name: "火山引擎",
+    badge: "🌋",
+    accent: "from-blue-600 to-cyan-400",
+    logo: "/sponsors/logo-volcengine-icon.png",
+    url: {
+      zh: "https://www.volcengine.com/activity/ai618?utm_campaign=hw&utm_content=hw&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=agency-agents-zh",
+      en: "https://www.byteplus.com/en/product/modelark?utm_campaign=hw&utm_content=jnMetaCode&utm_medium=devrel_tool_web&utm_source=OWO&utm_term=jnMetaCode",
+    },
+    tier: "standard",
+    since: "2026-07",
+    featured: false,
+    tagline: {
+      zh: "豆包大模型限时 5 折起 · 编程模型套餐 2.5 折订阅",
+      en: "Dola Seed 2.0 — ByteDance's full-modal general large model, on the ModelArk platform",
+    },
+    description: {
+      zh: "感谢火山引擎赞助了本项目！火山引擎 AI 巅峰盛惠来袭：豆包大模型限时 5 折起，19 元即可入手约 440 万 Tokens 文本模型，新客首单再享 AI 统一节省计划。从文本生成、图像创作到视频合成、语音复刻，全模态 AI 能力一站式配齐；开发者专属编程模型套餐 2.5 折订阅，支持 Kimi-K2.7、GLM-5.2 等主流模型。",
+      en: "Thanks to Dola Seed for sponsoring this project! Dola Seed 2.0 is a full-modal general large model independently developed by ByteDance for the global market. Built on a unified multimodal architecture, it supports joint understanding and generation of text, images, audio and video. It natively enables agent collaboration, with strong reasoning, long-task execution, tool integration and coding capabilities — widely applicable to smart cockpits, personal assistants, education, customer support, marketing, retail and more. It excels in multimodal perception, end-to-end complex task delivery, stable interaction and data security, and is readily accessible and deployable via the ModelArk platform.",
+    },
+    perk: {
+      zh: "注册即领 2500 万 Tokens，立即访问活动页面抢购",
+      en: "Register via the link to get 500,000 tokens of free inference quota per model",
+    },
+  },
 ];
 
 export function sponsorsByTier(tier: SponsorTier) {
   return sponsors.filter((s) => s.tier === tier);
+}
+
+export function sponsorUrl(sponsor: Pick<Sponsor, "url">, lang: Language): string {
+  return typeof sponsor.url === "string" ? sponsor.url : sponsor.url[lang];
 }

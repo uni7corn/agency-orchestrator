@@ -1,18 +1,19 @@
 import { ArrowUpRight, Sparkles } from "lucide-react";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import type { Sponsor } from "@/content/sponsors";
+import { sponsorUrl, type Sponsor } from "@/content/sponsors";
 import { PerkText } from "./PerkText";
 import { cn } from "@/lib/utils";
 
 export function SponsorCard({ sponsor }: { sponsor: Sponsor }) {
   const { lang } = useLanguage();
   const s = sponsor;
+  const href = sponsorUrl(s, lang);
 
   // 旗舰 + 有 banner：全宽大屏卡片，图片在上、文字在下（参考 CC Switch 旗舰位）
   if (s.banner) {
     return (
       <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-gold/40 bg-card/60 transition-all hover:border-gold/70 md:col-span-2 lg:col-span-3">
-        <a href={s.url} target="_blank" rel="noreferrer" className="block">
+        <a href={href} target="_blank" rel="noreferrer" className="block">
           <img src={s.banner} alt={s.name} className="aspect-[1269/337] w-full object-cover" />
         </a>
 
@@ -30,7 +31,7 @@ export function SponsorCard({ sponsor }: { sponsor: Sponsor }) {
               </span>
             )}
             <a
-              href={s.url}
+              href={href}
               target="_blank"
               rel="noreferrer"
               className="ml-auto inline-flex items-center gap-2 rounded-xl bg-gold px-5 py-2.5 text-sm font-semibold text-gold-foreground transition-opacity hover:opacity-90"
@@ -51,7 +52,7 @@ export function SponsorCard({ sponsor }: { sponsor: Sponsor }) {
 
   return (
     <a
-      href={s.url}
+      href={href}
       target="_blank"
       rel="noreferrer"
       className="group relative flex min-h-[180px] flex-col rounded-2xl border border-border/70 bg-card/60 p-6 transition-all hover:z-20 hover:-translate-y-0.5 hover:border-primary/40"

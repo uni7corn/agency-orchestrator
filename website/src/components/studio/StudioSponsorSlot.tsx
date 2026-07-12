@@ -1,6 +1,6 @@
 import { ArrowUpRight, Sparkles } from "lucide-react";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { sponsorsByTier } from "@/content/sponsors";
+import { sponsorUrl, sponsorsByTier } from "@/content/sponsors";
 import { PerkText } from "@/components/sponsors/PerkText";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +16,7 @@ export function StudioSponsorSlot() {
   return (
     <div className="container-page pb-8">
       <a
-        href={sponsor.url}
+        href={sponsorUrl(sponsor, lang)}
         target="_blank"
         rel="noreferrer"
         className="group flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-gold/40 bg-gold/[0.04] px-5 py-3.5 transition-colors hover:border-gold/70"

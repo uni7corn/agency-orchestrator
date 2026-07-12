@@ -1,7 +1,7 @@
 import { ArrowRight, Heart } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { sponsors } from "@/content/sponsors";
+import { sponsorUrl, sponsors } from "@/content/sponsors";
 
 export function SponsorStrip() {
   const { t, lang, prefix } = useLanguage();
@@ -22,7 +22,7 @@ export function SponsorStrip() {
           {sponsors.map((s) => (
             <a
               key={s.id}
-              href={s.url}
+              href={sponsorUrl(s, lang)}
               target="_blank"
               rel="noreferrer"
               className="flex w-[260px] items-center gap-3 rounded-2xl border border-border/70 bg-card/60 p-4 transition-colors hover:border-primary/40"

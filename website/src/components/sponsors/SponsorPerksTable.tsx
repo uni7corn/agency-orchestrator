@@ -1,7 +1,7 @@
 import { ExternalLink, Sparkles } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { sponsors } from "@/content/sponsors";
+import { sponsorUrl, sponsors } from "@/content/sponsors";
 
 export function SponsorPerksTable() {
   const { t, lang } = useLanguage();
@@ -59,7 +59,7 @@ export function SponsorPerksTable() {
                   )}
                 </td>
                 <td className="px-5 py-3.5 text-right">
-                  <a href={sp.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+                  <a href={sponsorUrl(sp, lang)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
                     {s.visit}
                     <ExternalLink className="size-3.5" />
                   </a>
