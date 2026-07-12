@@ -1,0 +1,112 @@
+name: "一人公司·做产品"
+description: "你出想法，AI 团队出货：产品经理写 PRD、架构师定方案、工程师排计划，老板（你）拿到能直接开工的启动包"
+category: "一人公司"
+featured: true
+
+agents_dir: "agency-agents-zh"
+
+llm:
+  provider: deepseek
+  model: deepseek-chat
+
+concurrency: 2
+
+inputs:
+  - name: idea
+    description: "你的产品想法（如：帮自由职业者自动记账开发票的小工具）"
+    required: true
+
+steps:
+  - id: ceo_brief
+    role: "strategy/nexus-strategy"
+    name: "老板"
+    emoji: "👔"
+    task: |
+      你是这家一人公司的 CEO。创始人的想法：{{idea}}
+
+      给团队下达开工简报：
+      1. 产品一句话定位
+      2. 目标用户与核心痛点
+      3. 这一版只做什么、坚决不做什么（范围栅栏）
+      4. 四周后的验收画面
+
+      像晨会讲话一样简洁有力，说人话。
+    output: brief
+
+  - id: prd
+    role: "product/product-manager"
+    name: "产品经理"
+    emoji: "🧭"
+    task: |
+      老板的开工简报：{{brief}}
+
+      作为产品经理，输出 MVP 的 PRD：
+      1. 用户画像与使用场景（具体到人、时间、动机）
+      2. 核心功能 3 个（每个写清用户操作路径和解决的问题）
+      3. 明确砍掉的功能及理由
+      4. 第一版上线标准（可衡量的指标）
+    acceptance: |
+      1. 包含用户/场景/功能/优先级/上线标准五个部分
+      2. 每个功能都有具体的用户操作路径，没有"待定"
+      3. 上线标准可量化（数字或可判定的条件）
+    output: prd_doc
+    depends_on: [ceo_brief]
+
+  - id: architecture
+    role: "engineering/engineering-backend-architect"
+    name: "技术总监"
+    emoji: "💻"
+    task: |
+      PRD 已出：{{prd_doc}}
+
+      作为技术架构师，输出一人能 hold 住的技术方案：
+      1. 技术栈选型及理由（选熟不选新）
+      2. 核心模块与数据流（文字画清楚关系）
+      3. 明确不引入的东西（防过度设计清单）
+      4. 主要技术风险与规避方案
+    acceptance: |
+      1. 技术栈每一项都给出"为什么是它"的理由
+      2. 有防过度设计清单
+    output: tech_plan
+    depends_on: [prd]
+
+  - id: sprint_plan
+    role: "product/product-sprint-prioritizer"
+    name: "项目主管"
+    emoji: "📋"
+    task: |
+      PRD：{{prd_doc}}
+      技术方案：{{tech_plan}}
+
+      作为项目主管，排出 4 周冲刺计划：
+      1. 按周拆解，每周有明确可交付物
+      2. 每周标注"完成的定义"
+      3. 留出 20% 缓冲，标明可顺延项
+    output: sprint
+    depends_on: [architecture]
+
+  - id: launch_pack
+    role: "strategy/nexus-strategy"
+    name: "老板"
+    emoji: "👔"
+    task: |
+      团队交付齐了：
+
+      **PRD**：{{prd_doc}}
+      **技术方案**：{{tech_plan}}
+      **冲刺计划**：{{sprint}}
+
+      作为 CEO 整合输出《产品启动包》：
+      ## 决策：Go / No-Go 及一句话理由
+      ## 定稿 PRD 摘要（可直接贴给任何协作者）
+      ## 技术方案摘要
+      ## 第一周每日行动清单
+      ## Top 3 风险与应对
+
+      ⚠️ 只输出最终成品本身：不要开场白、不要复盘或说明、不要向用户提问、不要建议任何命令或后续动作。
+    acceptance: |
+      1. 五个章节齐全，无"待补充"
+      2. 第一周行动清单具体到每天可执行
+      3. 每个风险都配了应对动作
+    output: launch_pack_doc
+    depends_on: [sprint_plan]

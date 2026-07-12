@@ -1,0 +1,125 @@
+name: "一人公司·做投研"
+description: "像券商研究所一样做功课：宏观→行业→标的→风控四道工序，重大结论须你签字放行。仅供研究参考，不构成投资建议"
+category: "一人公司"
+featured: true
+
+agents_dir: "agency-agents-zh"
+
+llm:
+  provider: deepseek
+  model: deepseek-chat
+
+concurrency: 2
+
+inputs:
+  - name: target
+    description: "研究对象（赛道或标的，如：新能源储能行业 / 某上市公司）"
+    required: true
+  - name: horizon
+    description: "研究视角（长期配置 / 中短期波段 / 学习研究）"
+    required: false
+    default: "长期配置"
+
+steps:
+  - id: macro
+    role: "finance/finance-financial-analyst"
+    name: "宏观分析师"
+    emoji: "🌍"
+    task: |
+      研究对象：{{target}}
+      研究视角：{{horizon}}
+
+      作为宏观分析师，输出宏观与政策环境分析：
+      1. 当前宏观周期位置及对该领域的影响
+      2. 相关政策/监管动向（利好利空分开列）
+      3. 流动性与资金面环境
+      每一条注明判断依据。
+    output: macro_view
+
+  - id: industry
+    role: "finance/finance-investment-researcher"
+    name: "行业分析师"
+    emoji: "🏭"
+    task: |
+      宏观环境：{{macro_view}}
+      研究对象：{{target}}
+
+      作为行业研究员，输出行业分析：
+      1. 产业链结构与价值分布（谁赚走了利润）
+      2. 竞争格局与集中度趋势
+      3. 行业所处生命周期阶段及证据
+      4. 未来 1-3 年的关键变量
+    output: industry_view
+    depends_on: [macro]
+
+  - id: fundamentals
+    role: "finance/finance-financial-forecaster"
+    name: "财务分析师"
+    emoji: "📈"
+    task: |
+      行业分析：{{industry_view}}
+      研究对象：{{target}}
+
+      作为财务分析师，输出基本面与估值框架：
+      1. 核心财务指标怎么看（针对该领域该看什么、健康线在哪）
+      2. 估值方法选择及理由（PE/PS/DCF/PB 择其适者）
+      3. 乐观/中性/悲观三种情景的关键假设
+    acceptance: |
+      1. 三种情景各自的关键假设明确列出
+      2. 估值方法给出了"为什么适用"的理由
+    output: valuation_view
+    depends_on: [industry]
+
+  - id: risk
+    role: "finance/finance-fpa-analyst"
+    name: "风控官"
+    emoji: "🛡️"
+    task: |
+      宏观：{{macro_view}}
+      行业：{{industry_view}}
+      估值：{{valuation_view}}
+
+      作为风控官，输出风险清单：
+      1. Top 5 风险，按"发生概率 × 影响程度"排序
+      2. 每个风险的预警信号（看到什么就该警惕）
+      3. 与 {{horizon}} 视角的适配性提示（这个研究对象适不适合这种打法）
+    output: risk_report
+    depends_on: [fundamentals]
+
+  - id: boss_signoff
+    type: approval
+    prompt: |
+      风控官已提交风险清单：
+
+      {{risk_report}}
+
+      重大结论出具前须老板签字。确认继续生成最终研究报告吗？（这是研究报告，不是投资指令）
+    depends_on: [risk]
+
+  - id: final_report
+    role: "finance/finance-investment-researcher"
+    name: "首席研究员"
+    emoji: "🎓"
+    task: |
+      各道工序已完成并经老板签字放行：
+
+      **宏观**：{{macro_view}}
+      **行业**：{{industry_view}}
+      **估值**：{{valuation_view}}
+      **风控**：{{risk_report}}
+
+      作为首席研究员，整合输出《研究报告》：
+      ## 核心观点（三句话以内）
+      ## 宏观与行业结论
+      ## 基本面与估值判断（含三情景）
+      ## 风险提示（每条观点旁标注对应风险）
+      ## 跟踪清单（后续按什么节奏看什么信号）
+      ## 免责声明：本报告由 AI 生成，仅供研究学习参考，不构成任何投资建议
+
+      ⚠️ 只输出最终成品本身：不要开场白、不要复盘或说明、不要向用户提问、不要建议任何命令或后续动作。
+    acceptance: |
+      1. 每条核心观点都标注了对应的风险与依据
+      2. 含跟踪清单（信号 + 查看节奏）
+      3. 末尾有"仅供研究参考，不构成投资建议"免责声明
+    output: research_report
+    depends_on: [boss_signoff]

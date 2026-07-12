@@ -1,5 +1,7 @@
 name: "AI 一人公司：全员大会"
 description: "你说一句话，9 个 AI 部门自动协作，2 分钟出完整商业方案——这就是一人公司"
+category: "一人公司"
+featured: true
 
 agents_dir: "agency-agents-zh"
 
