@@ -11,7 +11,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 
-**One sentence → full plan · 216 expert AI roles · Zero-code YAML · 10 LLM providers · key supported (DeepSeek recommended), plus 7 key-free options**
+**One sentence → full plan · 216 expert AI roles · Zero-code YAML · 11 LLM providers · key supported (DeepSeek recommended), plus 7 key-free options**
 
 > **Note:** `ao compose --run` auto-detects your language. Both 216 Chinese roles and 184 English roles ([agency-agents](https://github.com/msitarzewski/agency-agents), MIT) are **bundled in the npm package — no extra download needed**. **10 English workflow templates** are ready in `workflows/en/`.
 
@@ -214,7 +214,7 @@ analyze ──→ tech_review  ──→ summary
           (parallel)
 ```
 
-## 10 LLM Providers — 7 Need No API Key
+## 11 LLM Providers — 7 Need No API Key
 
 **Already paying for one of these? You're ready to go:**
 
@@ -235,6 +235,7 @@ analyze ──→ tech_review  ──→ summary
 | Provider | Config | Env Variable |
 |----------|--------|-------------|
 | DeepSeek | `provider: "deepseek"` | `DEEPSEEK_API_KEY` |
+| Volcengine Ark (Doubao / Kimi / GLM · sponsor) | `provider: "volcengine"` | `ARK_API_KEY` |
 | Claude API | `provider: "claude"` | `ANTHROPIC_API_KEY` |
 | OpenAI | `provider: "openai"` | `OPENAI_API_KEY` |
 

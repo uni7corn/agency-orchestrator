@@ -42,8 +42,8 @@ export const docGroups: DocGroup[] = [
           {
             heading: { zh: "解决什么问题", en: "What problems it solves" },
             body: {
-              zh: "- **让 agency-agents 的专家真正协作起来**：单个专家只解决一个环节，AO 让多位专家按 DAG 分工、并行、交接\n- 单次 prompt 难以覆盖复杂任务，多专家分工 + 收口质量更高\n- 不想写编排代码：用 YAML 声明依赖，引擎自动并行；或一句话 `compose` 自动选专家、生成并运行\n- 216 位专家覆盖营销、工程、设计、产品、财务、法律、销售、学术等领域\n- 10 个 provider，7 个免 API key",
-              en: "- **Make agency-agents' experts actually collaborate**: one expert handles one step; AO has many experts divide work, run in parallel, and hand off via a DAG\n- A single prompt struggles with complex tasks; multi-expert division + a finalizer yields higher quality\n- No orchestration code: declare dependencies in YAML, or `compose` from one sentence to auto-pick experts, generate and run\n- 216 experts across marketing, engineering, design, product, finance, legal, sales, academic, and more\n- 10 providers, 7 of them need no API key",
+              zh: "- **让 agency-agents 的专家真正协作起来**：单个专家只解决一个环节，AO 让多位专家按 DAG 分工、并行、交接\n- 单次 prompt 难以覆盖复杂任务，多专家分工 + 收口质量更高\n- 不想写编排代码：用 YAML 声明依赖，引擎自动并行；或一句话 `compose` 自动选专家、生成并运行\n- 216 位专家覆盖营销、工程、设计、产品、财务、法律、销售、学术等领域\n- 11 个 provider，7 个免 API key",
+              en: "- **Make agency-agents' experts actually collaborate**: one expert handles one step; AO has many experts divide work, run in parallel, and hand off via a DAG\n- A single prompt struggles with complex tasks; multi-expert division + a finalizer yields higher quality\n- No orchestration code: declare dependencies in YAML, or `compose` from one sentence to auto-pick experts, generate and run\n- 216 experts across marketing, engineering, design, product, finance, legal, sales, academic, and more\n- 11 providers, 7 of them need no API key",
             },
           },
           {
@@ -369,10 +369,10 @@ steps:
         title: { zh: "Provider 配置", en: "Provider config" },
         sections: [
           {
-            heading: { zh: "10 个 provider", en: "10 providers" },
+            heading: { zh: "11 个 provider", en: "11 providers" },
             body: {
-              zh: "顶层 `llm` 指定 provider 与 model，或用 `--provider` 临时覆盖。支持 DeepSeek / Claude / OpenAI / Gemini / Ollama 等 10 个 provider，按需求选择。",
-              en: "Set provider/model at top-level `llm`, or override with `--provider`. 10 providers supported (DeepSeek / Claude / OpenAI / Gemini / Ollama…) — pick what fits.",
+              zh: "顶层 `llm` 指定 provider 与 model，或用 `--provider` 临时覆盖。支持 DeepSeek / 火山引擎豆包 / Claude / OpenAI / Ollama 等 11 个 provider，按需求选择。",
+              en: "Set provider/model at top-level `llm`, or override with `--provider`. 11 providers supported (DeepSeek / Volcengine Doubao / Claude / OpenAI / Ollama…) — pick what fits.",
             },
             code: `llm:
   provider: "deepseek"

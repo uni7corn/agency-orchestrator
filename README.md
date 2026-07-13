@@ -11,7 +11,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 
-**一句话出结果 · 216 个专业 AI 角色 · YAML 零代码 · 10 种大模型 · 支持 key（推荐 DeepSeek），也有 7 种免 key 方式**
+**一句话出结果 · 216 个专业 AI 角色 · YAML 零代码 · 11 种大模型 · 支持 key（推荐 DeepSeek），也有 7 种免 key 方式**
 
 > 📖 [完整上手教程](https://mp.weixin.qq.com/s/XcGbkMb6TM6NLQiL7ICwbw) — 从安装到实战，10 分钟上手
 >
@@ -225,7 +225,7 @@ analyze ──→ tech_review  ──→ summary
           (并行)
 ```
 
-## 10 种 LLM — 7 种不需要 API key
+## 11 种 LLM — 7 种不需要 API key
 
 **你已经有这些会员了吧？直接就能跑：**
 
@@ -246,10 +246,11 @@ analyze ──→ tech_review  ──→ summary
 | 提供商 | 配置 | 环境变量 |
 |--------|------|---------|
 | DeepSeek | `provider: "deepseek"` | `DEEPSEEK_API_KEY` |
+| 火山引擎（豆包 / Kimi / GLM，赞助商） | `provider: "volcengine"` | `ARK_API_KEY` |
 | Claude API | `provider: "claude"` | `ANTHROPIC_API_KEY` |
 | OpenAI | `provider: "openai"` | `OPENAI_API_KEY` |
 
-**自定义 API（火山引擎、智谱、月之暗面、硅基流动等 OpenAI 兼容 API）：**
+**自定义 API（智谱、月之暗面、硅基流动等 OpenAI 兼容 API）：**
 
 ```bash
 ao init --provider openai --model 模型名 \
@@ -595,7 +596,7 @@ ao-output/产品需求评审-2026-03-22/
 
 | 项目 | 定位 | 一句话 |
 |------|------|-------|
-| **本项目**（agency-orchestrator） | 🚀 编排引擎 | 一句话 → 216 专家协作，**几分钟出方案**（10 家 LLM / 7 免费） |
+| **本项目**（agency-orchestrator） | 🚀 编排引擎 | 一句话 → 216 专家协作，**几分钟出方案**（11 家 LLM / 7 免费） |
 | [agency-agents-zh](https://github.com/jnMetaCode/agency-agents-zh) ![](https://img.shields.io/github/stars/jnMetaCode/agency-agents-zh?style=flat&label=⭐) | 🎭 中文角色库 | 216 个**即插即用** AI 专家，含 50 中国原创（小红书 / 抖音 / 飞书 / 钉钉） |
 | [agency-agents](https://github.com/msitarzewski/agency-agents) | 🎭 英文角色库 | 184 个英文 AI 角色 by [@msitarzewski](https://github.com/msitarzewski) |
 | [superpowers-zh](https://github.com/jnMetaCode/superpowers-zh) ![](https://img.shields.io/github/stars/jnMetaCode/superpowers-zh?style=flat&label=⭐) | 🧠 工作方法论 | 20 个 skills 教 AI 怎么干活（TDD / 调试 / 代码审查等） |
