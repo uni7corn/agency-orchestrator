@@ -370,6 +370,11 @@ export function ProviderConfigView({
           {/* add-custom：预设图库 + 基本信息 */}
           {isAdd && (
             <>
+              {/* 表单看着"太简单"是有意为之：协议定死 OpenAI 兼容，把这个边界说出来，
+                  用户才不会怀疑"填个 key 和地址怎么可能够" */}
+              <p className="rounded-xl border border-border/60 bg-muted/40 px-3.5 py-2.5 text-xs leading-relaxed text-muted-foreground">
+                💡 {p.customProviderProtocolHint}
+              </p>
               <Section title={p.customProviderPresetsLabel}>
                 <div className="flex flex-wrap gap-1.5">
                   {CUSTOM_PROVIDER_PRESETS.map((preset) => (

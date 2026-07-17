@@ -988,7 +988,9 @@ app.post('/api/compose', async (req, res) => {
       error: 'no_credentials',
       provider: provider || process.env.AO_PROVIDER || 'apinebula',
       installedCli: detectInstalledCliProviders(),
+      // 顺序按赞助档位：多元探索（进阶）> CCSub / Cubence（标准）
       sponsors: [
+        { name: '多元探索', bonus: '注册送 3 元', url: 'https://duoyuanx.com/register?aff=LErO' },
         { name: 'CCSub', bonus: '注册送 $5', url: 'https://www.ccsub.net/register?ref=8G5W4JK4' },
         { name: 'Cubence', url: 'https://cubence.com/signup?code=SCW29JP9&source=agency' },
       ],

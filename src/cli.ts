@@ -713,10 +713,11 @@ function printFirstRunGuide(provider: string): void {
     L(`       ao compose "…" --run --provider claude-code`);
   }
   L('');
-  L(`  ② 用「送额度」的中转（几十秒拿 key，一个 key 通 Claude/GPT/Gemini 全家桶）：`);
-  L(`       · CCSub  注册送 $5 → https://www.ccsub.net/register?ref=8G5W4JK4`);
-  L(`       · Cubence           → https://cubence.com/signup?code=SCW29JP9&source=agency`);
-  L(`       拿到 key：ao compose "…" --run --provider ccsub --api-key <你的key>`);
+  L(`  ② 用「送额度」的聚合/中转（几十秒拿 key，一个 key 通 Claude/GPT/Gemini 全家桶）：`);
+  L(`       · 多元探索 注册送 3 元 → https://duoyuanx.com/register?aff=LErO`);
+  L(`       · CCSub    注册送 $5  → https://www.ccsub.net/register?ref=8G5W4JK4`);
+  L(`       · Cubence             → https://cubence.com/signup?code=SCW29JP9&source=agency`);
+  L(`       拿到 key：ao compose "…" --run --provider duoyuanx --api-key <你的key>`);
   L('');
   L(`  ③ 本地免费跑（需先装 Ollama 并拉好模型，建议 70B+）：`);
   L(`       ao compose "…" --run --provider ollama --model llama3`);
