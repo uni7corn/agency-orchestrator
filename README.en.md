@@ -604,7 +604,7 @@ Your AI subscription ──→ agency-orchestrator ──→ 400+ expert roles c
 
 | Project | Description |
 |---------|-------------|
-| [agency-agents](https://github.com/msitarzewski/agency-agents) | 184 English AI role definitions by [@msitarzewski](https://github.com/msitarzewski) — the English role library for this engine |
+| [agency-agents](https://github.com/msitarzewski/agency-agents) | 184 English AI roles by [@msitarzewski](https://github.com/msitarzewski) (MIT) — **bundled in the npm package**, auto-selected for English tasks by `ao compose`, no separate install needed |
 | [agency-agents-zh](https://github.com/jnMetaCode/agency-agents-zh) | 216 Chinese AI role definitions (Chinese) — the Chinese role library for this engine |
 | [ai-coding-guide](https://github.com/jnMetaCode/ai-coding-guide) | AI coding tools field guide (Chinese) — 66 Claude Code tips + 9 tools best practices |
 | [superpowers-zh](https://github.com/jnMetaCode/superpowers-zh) | AI coding superpowers (Chinese) — 20 skills for Claude Code / Cursor |
