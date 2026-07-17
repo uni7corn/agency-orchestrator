@@ -1,6 +1,7 @@
 import { Check, ChevronDown, Copy, Download, FileDown, Loader2, MessageSquare, Minus, Scale, Square, Terminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Tip } from "@/components/ui/tip";
 import { useCopy } from "@/components/ui/copy-button";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { StepList } from "./StepList";
@@ -95,9 +96,11 @@ export function RunViewer({ onViewHistory, onGoProviders }: { onViewHistory?: ()
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <Button size="icon" variant="ghost" title={t.studio.run.terminalOutput} onClick={() => setShowTerminal((v) => !v)}>
-              <Terminal className="size-4" />
-            </Button>
+            <Tip label={t.studio.run.terminalOutput}>
+              <Button size="icon" variant="ghost" onClick={() => setShowTerminal((v) => !v)}>
+                <Terminal className="size-4" />
+              </Button>
+            </Tip>
             {running && (
               <Button size="sm" variant="ghost" title={t.studio.run.backgroundTitle} onClick={() => open(null)}>
                 <Minus className="size-4" />
@@ -110,9 +113,11 @@ export function RunViewer({ onViewHistory, onGoProviders }: { onViewHistory?: ()
                 {t.studio.run.stop}
               </Button>
             ) : (
-              <Button size="icon" variant="ghost" onClick={() => open(null)}>
-                <X className="size-4" />
-              </Button>
+              <Tip label={t.studio.run.close}>
+                <Button size="icon" variant="ghost" onClick={() => open(null)}>
+                  <X className="size-4" />
+                </Button>
+              </Tip>
             )}
           </div>
         </div>

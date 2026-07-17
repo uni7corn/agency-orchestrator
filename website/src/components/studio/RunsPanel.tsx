@@ -2,6 +2,7 @@ import { ArrowLeft, CheckCircle2, ChevronDown, Clock, Download, Loader2, Play, R
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
+import { Tip } from "@/components/ui/tip";
 import { api, type RunSummary } from "@/lib/studio";
 import { downloadText, safeFilename } from "@/lib/download";
 import { useLanguage } from "@/i18n/LanguageProvider";
@@ -160,16 +161,21 @@ function DetailPane({ id, provider, onRun }: { id: string; provider: string; onR
                   {s.duration && <span className="shrink-0 text-xs text-muted-foreground">{s.duration}</span>}
                 </button>
                 <div className="flex shrink-0 items-center gap-1.5">
-                  {s.content && <CopyButton value={s.content} />}
                   {s.content && (
-                    <button
-                      type="button"
-                      title={t.studio.runs.downloadStep}
-                      onClick={() => downloadText(safeFilename(`${baseName}-${i + 1}-${s.agentName ?? s.id}`), s.content!)}
-                      className="inline-flex items-center rounded-lg border border-border/70 bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                      <Download className="size-3.5" />
-                    </button>
+                    <Tip label={t.studio.shell.copy}>
+                      <CopyButton value={s.content} />
+                    </Tip>
+                  )}
+                  {s.content && (
+                    <Tip label={t.studio.runs.downloadStep}>
+                      <button
+                        type="button"
+                        onClick={() => downloadText(safeFilename(`${baseName}-${i + 1}-${s.agentName ?? s.id}`), s.content!)}
+                        className="inline-flex items-center rounded-lg border border-border/70 bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        <Download className="size-3.5" />
+                      </button>
+                    </Tip>
                   )}
                   {canResume && (
                     <Button

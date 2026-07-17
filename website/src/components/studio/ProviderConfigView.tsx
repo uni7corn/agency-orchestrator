@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { api, CLI_RELAY_PRESETS, CUSTOM_PROVIDER_PRESETS, groupModelsByVendor, providerLogo, type CliRelayPreset, type ConfigResponse } from "@/lib/studio";
 import { sponsors, sponsorUrl } from "@/content/sponsors";
+import { Tip } from "@/components/ui/tip";
 import { track } from "@/lib/track";
 import { cn } from "@/lib/utils";
 
@@ -286,9 +287,11 @@ export function ProviderConfigView({
       {/* 顶栏：返回 + 头像 + 标题 */}
       <div className="sticky top-0 z-10 border-b border-border/60 bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
-          <button onClick={onClose} className="grid size-9 shrink-0 place-items-center rounded-xl border border-border/70 text-muted-foreground hover:text-foreground" title={p.backToList}>
-            <ArrowLeft className="size-4" />
-          </button>
+          <Tip label={p.backToList}>
+            <button onClick={onClose} className="grid size-9 shrink-0 place-items-center rounded-xl border border-border/70 text-muted-foreground hover:text-foreground" aria-label={p.backToList}>
+              <ArrowLeft className="size-4" />
+            </button>
+          </Tip>
           {logo ? (
             <img src={logo} alt="" className="size-9 shrink-0 rounded-xl object-contain" onError={(e) => (e.currentTarget.style.display = "none")} />
           ) : (
@@ -492,9 +495,11 @@ export function ProviderConfigView({
                     placeholder={status?.hasKey ? p.pasteNewKey : p.pasteKey}
                     className={cn(inputCls, "pr-9 font-mono")}
                   />
-                  <button type="button" onClick={() => setShow((v) => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                    {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </button>
+                  <Tip label={show ? p.hideKey : p.showKey} className="absolute right-2 top-1/2 -translate-y-1/2">
+                    <button type="button" onClick={() => setShow((v) => !v)} className="text-muted-foreground hover:text-foreground">
+                      {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </Tip>
                 </div>
                 {/* 获取 key 独立行（对齐 cc-switch 合作伙伴提示条）：优惠文案 + 优惠码 + 直达链接 */}
                 {(sponsorEntry || registerUrl) && (

@@ -1,6 +1,7 @@
 import { Check, Download, Loader2, MessageSquarePlus, RotateCw } from "lucide-react";
 import { useState } from "react";
 import { CopyButton } from "@/components/ui/copy-button";
+import { Tip } from "@/components/ui/tip";
 import { Markdown } from "./Markdown";
 import { RoleAvatar } from "./RoleAvatar";
 import type { LiveStep } from "./RunManager";
@@ -68,14 +69,15 @@ export function StepList({
                 )}
                 {s.content && <CopyButton value={s.content} label={t.studio.shell.copy} copiedLabel={t.studio.shell.copied} />}
                 {s.content && (
-                  <button
-                    type="button"
-                    title={t.studio.shell.downloadStep}
-                    onClick={() => downloadText(safeFilename(s.name ?? s.id), s.content)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/50 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <Download className="size-3.5" />
-                  </button>
+                  <Tip label={t.studio.shell.downloadStep}>
+                    <button
+                      type="button"
+                      onClick={() => downloadText(safeFilename(s.name ?? s.id), s.content)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-muted/50 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <Download className="size-3.5" />
+                    </button>
+                  </Tip>
                 )}
               </div>
             </div>

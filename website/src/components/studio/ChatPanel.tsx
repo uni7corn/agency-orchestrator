@@ -1,6 +1,7 @@
 import { Check, Copy, Download, Loader2, MessageCircle, RotateCcw, Send, Users, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Tip } from "@/components/ui/tip";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { api, PROVIDER_LABELS, type ChatMessage } from "@/lib/studio";
 import { downloadText, safeFilename } from "@/lib/download";
@@ -161,26 +162,31 @@ export function ChatPanel({
           <div className="flex shrink-0 items-center gap-1">
             {messages.length > 0 && (
               <>
-                <Button size="icon" variant="ghost" title={t.studio.run.downloadMd} onClick={downloadMd}>
-                  <Download className="size-4" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  title={t.studio.chat.clearTitle}
-                  disabled={busy}
-                  onClick={() => {
-                    setMessages([]);
-                    setErr(null);
-                  }}
-                >
-                  <RotateCcw className="size-4" />
-                </Button>
+                <Tip label={t.studio.run.downloadMd}>
+                  <Button size="icon" variant="ghost" onClick={downloadMd}>
+                    <Download className="size-4" />
+                  </Button>
+                </Tip>
+                <Tip label={t.studio.chat.clearTitle}>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      setMessages([]);
+                      setErr(null);
+                    }}
+                  >
+                    <RotateCcw className="size-4" />
+                  </Button>
+                </Tip>
               </>
             )}
-            <Button size="icon" variant="ghost" title={t.studio.chat.close} onClick={onClose}>
-              <X className="size-4" />
-            </Button>
+            <Tip label={t.studio.chat.close}>
+              <Button size="icon" variant="ghost" onClick={onClose}>
+                <X className="size-4" />
+              </Button>
+            </Tip>
           </div>
         </div>
 

@@ -1,13 +1,15 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 /**
  * 即时悬浮提示：原生 title 要悬停约 1 秒才出现、且样式不可控，图标按钮的用途
  * 用户经常发现不了。纯 CSS 实现（无依赖），hover 即显示。
  * 用法：<Tip label="删除此工作流"><Button …/></Tip>
+ * className 作用在外层包裹 span（子元素需要绝对定位时把定位类挪到这里）。
  */
-export function Tip({ label, children }: { label: string; children: ReactNode }) {
+export function Tip({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <span className="group/tip relative inline-flex">
+    <span className={cn("group/tip relative inline-flex", className)}>
       {children}
       <span
         role="tooltip"

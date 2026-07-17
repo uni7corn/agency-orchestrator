@@ -1,6 +1,7 @@
 import { LifeBuoy, Loader2, RotateCw, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Tip } from "@/components/ui/tip";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { api, type ClaudeHealth, type ClaudeRepairResult } from "@/lib/studio";
 import { cn } from "@/lib/utils";
@@ -71,14 +72,15 @@ export function ClaudeHealthCard() {
           <span className="block text-sm font-semibold">{tr.title}</span>
           <span className="block text-[11px] text-muted-foreground">{tr.subtitle}</span>
         </span>
-        <button
-          onClick={check}
-          disabled={loading || repairing}
-          className="grid size-8 shrink-0 place-items-center rounded-lg border border-border/70 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:opacity-50"
-          title={tr.recheck}
-        >
-          <RotateCw className={cn("size-3.5", loading && "animate-spin")} />
-        </button>
+        <Tip label={tr.recheck}>
+          <button
+            onClick={check}
+            disabled={loading || repairing}
+            className="grid size-8 shrink-0 place-items-center rounded-lg border border-border/70 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:opacity-50"
+          >
+            <RotateCw className={cn("size-3.5", loading && "animate-spin")} />
+          </button>
+        </Tip>
       </div>
 
       {!loading && (
