@@ -31,6 +31,7 @@ import { t, detectLang } from './i18n.js';
 import { loadEnvFile, writeEnvFile, ensureEnvGitignored } from './utils/env-loader.js';
 import { parseDuration } from './utils/duration.js';
 import { defaultOutputDir, defaultWorkflowsDir } from './utils/paths.js';
+import { PREMIUM_SPONSOR, rotatingStandardSponsor } from './utils/sponsor-guide.js';
 
 // Auto-load ./.env (shell env wins; no overwrite)
 loadEnvFile();
@@ -714,9 +715,10 @@ function printFirstRunGuide(provider: string): void {
   }
   L('');
   L(`  ② 用「送额度」的聚合/中转（几十秒拿 key，一个 key 通 Claude/GPT/Gemini 全家桶）：`);
-  L(`       · 多元探索 注册送 3 元 → https://duoyuanx.com/register?aff=LErO`);
-  L(`       · CCSub    注册送 $5  → https://www.ccsub.net/register?ref=8G5W4JK4`);
-  L(`       · Cubence             → https://cubence.com/signup?code=SCW29JP9&source=agency`);
+  // 赞助商位规则（src/utils/sponsor-guide.ts）：进阶档固定第一，标准档按天轮换第二位
+  const rot = rotatingStandardSponsor();
+  L(`       · ${PREMIUM_SPONSOR.name} ${PREMIUM_SPONSOR.bonus} → ${PREMIUM_SPONSOR.url}`);
+  L(`       · ${rot.name}${rot.bonus ? ` ${rot.bonus}` : ''} → ${rot.url}`);
   L(`       拿到 key：ao compose "…" --run --provider duoyuanx --api-key <你的key>`);
   L('');
   L(`  ③ 本地免费跑（需先装 Ollama 并拉好模型，建议 70B+）：`);

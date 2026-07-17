@@ -312,7 +312,13 @@ export function RolesPicker({
                 {(needKeyGuide.sponsors ?? []).map((s, i) => (
                   <span key={s.name}>
                     {i > 0 && "、"}
-                    <a href={s.url} target="_blank" rel="noreferrer" className="text-primary underline">{s.name}{s.bonus ? `（${s.bonus}）` : ""}</a>
+                    <a
+                      href={s.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => track("sponsor_click", { sponsor: s.name, surface: "need_key_banner" })}
+                      className="text-primary underline"
+                    >{s.name}{s.bonus ? `（${s.bonus}）` : ""}</a>
                   </span>
                 ))}
                 {t.studio.roles.needKeySponsorAfter}

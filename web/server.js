@@ -18,6 +18,7 @@ import { API_PROVIDERS, API_PROVIDER_MAP } from '../dist/connectors/api-provider
 import { applyCodexRelay, clearCodexRelay, readCodexRelayStatus } from '../dist/utils/codex-relay.js';
 import { diagnoseClaudeConfig, repairClaudeConfig } from '../dist/utils/claude-repair.js';
 import { validateCustomProviderId, readCustomProviders, addCustomProvider, removeCustomProvider, updateCustomProvider } from '../dist/utils/custom-providers.js';
+import { PREMIUM_SPONSOR, rotatingStandardSponsor } from '../dist/utils/sponsor-guide.js';
 
 // Codex 没有环境变量覆盖机制，中转配置写在 ~/.codex/config.toml + auth.json 里，
 // 用固定的内部 provider id（不管用户填的是哪家中转商），避免还要在 UI 里加个
@@ -988,12 +989,9 @@ app.post('/api/compose', async (req, res) => {
       error: 'no_credentials',
       provider: provider || process.env.AO_PROVIDER || 'apinebula',
       installedCli: detectInstalledCliProviders(),
-      // 顺序按赞助档位：多元探索（进阶）> CCSub / Cubence（标准）
-      sponsors: [
-        { name: '多元探索', bonus: '注册送 3 元', url: 'https://duoyuanx.com/register?aff=LErO' },
-        { name: 'CCSub', bonus: '注册送 $5', url: 'https://www.ccsub.net/register?ref=8G5W4JK4' },
-        { name: 'Cubence', url: 'https://cubence.com/signup?code=SCW29JP9&source=agency' },
-      ],
+      // 赞助商位规则（src/utils/sponsor-guide.ts）：进阶档固定第一——档位专属权益；
+      // 第二位在标准档里按天轮换，同档雨露均沾，且避免多个赠额并排稀释转化
+      sponsors: [PREMIUM_SPONSOR, rotatingStandardSponsor()],
     });
   }
   // roles 可为空 = AI 自动组队：让 LLM 从全量角色目录里自己挑专家（对应 CLI `ao compose "一句话"`，
