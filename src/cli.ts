@@ -209,6 +209,8 @@ async function handleRun(): Promise<void> {
       const cmp = await compareWorkflowVsBaseline(resolve(filePath), inputs, {
         outputDir,
         quiet,
+        verify: parseVerifyFlag(),
+        signalFlush: true,
         genOverride: llmOverride,
         judgeLlm: judgeProvider
           ? { provider: judgeProvider, model: judgeModel, timeout: 600_000 } as LLMConfig

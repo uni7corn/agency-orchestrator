@@ -186,6 +186,7 @@ export async function run(
 
   // Resume: 计算 skipStepIds + 兼容旧 output 变量名
   let skipStepIds: Set<string> | undefined;
+  let restoredStepMeta: Map<string, Partial<import('./types.js').StepResult>> | undefined;
 
   if (resumeDir) {
     // 兼容变量重命名：如果旧 metadata 的 output_var 和新 YAML 的 output 不同，
@@ -203,6 +204,14 @@ export async function run(
     }
 
     skipStepIds = computeResumeSkipIds(dag, getCompletedStepIds(resumeDir), fromStep);
+
+    // 被复用步骤的展示字段（角色名/验收标准/核验结果）从旧档案带回新档案，
+    // 否则续跑产生的 metadata 里这些步骤全是裸 id、验收记录凭空消失
+    restoredStepMeta = new Map(
+      (metadata.steps as import('./types.js').StepResult[])
+        .filter(s => s.status === 'completed')
+        .map(s => [s.id, { agentName: s.agentName, agentEmoji: s.agentEmoji, acceptance: s.acceptance, verification: s.verification }])
+    );
 
     if (!options?.quiet) {
       console.log(`  恢复自: ${resumeDir}`);
@@ -272,6 +281,7 @@ export async function run(
   // 或终端 Ctrl-C 的 run 会无痕消失，历史里无法「继续运行」。
   const partialSteps: import('./types.js').StepResult[] = [];
   const runStartedAt = Date.now();
+  let flushHandler: ((signal: NodeJS.Signals) => void) | undefined;
   if (options?.signalFlush) {
     const flushAndExit = (signal: NodeJS.Signals) => {
       try {
@@ -309,7 +319,7 @@ export async function run(
       } catch { /* 落盘失败也必须退出 */ }
       process.exit(signal === 'SIGINT' ? 130 : 143);
     };
-    // once：触发即自动移除；CLI 进程一次只跑一个工作流，正常结束后进程随即退出，无泄漏面
+    flushHandler = flushAndExit;
     process.once('SIGTERM', flushAndExit);
     process.once('SIGINT', flushAndExit);
   }
@@ -321,6 +331,7 @@ export async function run(
     concurrency: workflow.concurrency || 2,
     inputs: inputMap,
     skipStepIds,
+    restoredStepMeta,
     feedback: feedbackOption,
     verify: options?.verify ?? workflow.verify ?? true,
     stepResultsSink: partialSteps,
@@ -346,6 +357,13 @@ export async function run(
       }
     },
   } satisfies ExecutorOptions);
+
+  // 工作流跑完立即摘除信号监听：本次运行即将正常存档，此后（--materialize/--export
+  // 等收尾期）的 Ctrl-C 不能再把已成功的运行二次存档成"被中断"的重复档案
+  if (flushHandler) {
+    process.removeListener('SIGTERM', flushHandler);
+    process.removeListener('SIGINT', flushHandler);
+  }
 
   result.name = workflow.name;
   // 源文件绝对路径随 metadata 存档——历史记录的"重跑/从某步续跑"靠它定位工作流
@@ -386,6 +404,10 @@ export async function compareWorkflowVsBaseline(
     genOverride?: Partial<import('./types.js').LLMConfig>;
     /** 评审模型（建议强模型）；不传退回生成模型 */
     judgeLlm?: import('./types.js').LLMConfig;
+    /** acceptance 自动核验开关，透传给内部 run()（CLI --verify/--no-verify 在 compare 模式同样生效） */
+    verify?: boolean;
+    /** SIGTERM/SIGINT 优雅存档，透传给内部 run()（仅 CLI 进程开；web in-process 调用勿开） */
+    signalFlush?: boolean;
   },
 ): Promise<{
   multiOutput: string;
@@ -404,6 +426,8 @@ export async function compareWorkflowVsBaseline(
     quiet: options?.quiet ?? true,
     outputDir: options?.outputDir,
     llmOverride: options?.genOverride,
+    verify: options?.verify,
+    signalFlush: options?.signalFlush,
   });
   const multiOutput = finalOutput(result);
 

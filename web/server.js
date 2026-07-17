@@ -588,7 +588,9 @@ app.post('/api/run', (req, res) => {
 
   function parseLine(raw) {
     const clean = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '').trim();
-    if (!clean) return;
+    // ⚠️ 条目紧贴"完成 | … | 验收 ⚠️"行连续打印，首个空行即正文分界——
+    // 空行必须关闭 verify-item 窗口，否则正文里以 ⚠️ 开头的行会被误吞成核验条目
+    if (!clean) { inVerifyItems = false; return; }
 
     // human_input / approval 节点暂停等待输入：引擎在 AO_WEB_INPUT 模式下发的机器标记。
     // 转成 await-input 事件，前端弹框，用户输入经 POST /api/run-input 写回子进程 stdin。

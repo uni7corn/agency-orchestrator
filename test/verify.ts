@@ -26,6 +26,10 @@ const p2 = parseVerify('{"pass": true, "failed": [{"criterion": "有风险章节
 assert(p2?.pass === false, 'parseVerify: pass=true 但列了未满足条目 → 以条目为准判未过（保守裁决）');
 assert(parseVerify('模型跑偏了没有输出 JSON') === null, 'parseVerify: 无 JSON → null');
 assert(parseVerify('{"pass": "yes"}') === null, 'parseVerify: pass 非布尔 → null');
+assert(parseVerify('{"pass": false}') === null, 'parseVerify: pass=false 但给不出条目 → 核验不可用（不做空清单返工）');
+assert(parseVerify('{"pass": false, "failed": [{}]}') === null, 'parseVerify: pass=false 且条目全空 → 核验不可用');
+const p3 = parseVerify('{"pass": false, "failed": [{"criterion": "1. 三节\\n2. 标风险", "why": "第\\n二节缺失"}]}');
+assert(p3?.failed[0].criterion === '1. 三节 2. 标风险' && p3.failed[0].why === '第 二节缺失', 'parseVerify: 条目内嵌换行被压平成单行（下游 CLI 行/文件头/SSE 都按单行消费）');
 
 // ── buildReworkBlock / formatFailedItems ──
 const rb = buildReworkBlock([{ criterion: '包含风险章节', why: '整段缺失' }], '这是上一版产出全文');

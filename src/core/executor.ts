@@ -50,6 +50,11 @@ export interface ExecutorOptions {
    * 供 SIGTERM/SIGINT 中断时把已完成步骤落盘成 metadata（否则中断的 run 无痕）。
    */
   stepResultsSink?: StepResult[];
+  /**
+   * resume 复用步骤在上一次运行档案里的展示字段（agentName/acceptance/verification 等），
+   * 由 run() 从旧 metadata 读出传入——续跑产生的新档案才不丢被复用步骤的验收记录。
+   */
+  restoredStepMeta?: Map<string, Partial<StepResult>>;
 }
 
 export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<WorkflowResult> {
@@ -111,9 +116,16 @@ export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<Wo
         node.result = node.step.output ? context.get(node.step.output) : undefined;
         node.startTime = Date.now();
         node.endTime = node.startTime;
+        // 上一次运行档案里的展示字段（角色名/验收标准/核验结果）随复用一起带回，
+        // 否则续跑的新档案里这些步骤全变成裸 id、验收记录凭空消失
+        const prev = options.restoredStepMeta?.get(node.step.id);
         upsertStepResult(stepResults, {
           id: node.step.id,
           role: node.step.role,
+          agentName: prev?.agentName,
+          agentEmoji: prev?.agentEmoji,
+          acceptance: prev?.acceptance,
+          verification: prev?.verification,
           status: 'completed',
           output: node.result,
           output_var: node.step.output,
@@ -161,6 +173,26 @@ export async function executeDAG(dag: DAG, options: ExecutorOptions): Promise<Wo
           onStepStart,
           feedback: options.feedback,
           verify: options.verify,
+        }).then(value => {
+          // 中断兜底：settle 即写入 sink 一份最小记录，不等整批屏障——否则并行批次里
+          // 先完成的步骤在 SIGTERM 时会被当作"未完成"丢弃（产出和 token 白花）。
+          // 批次收尾的完整 upsert 会按 id 覆盖这份记录。
+          if (options.stepResultsSink && node.status !== 'skipped') {
+            upsertStepResult(stepResults, {
+              id: node.step.id,
+              role: node.step.role,
+              agentName: node.agentName,
+              agentEmoji: node.agentEmoji,
+              status: 'completed',
+              output: value,
+              output_var: node.step.output,
+              acceptance: node.acceptance ?? node.step.acceptance,
+              verification: node.verification,
+              duration: Date.now() - (node.startTime || Date.now()),
+              tokens: node.tokenUsage || { input: 0, output: 0 },
+            });
+          }
+          return value;
         }))
       );
 

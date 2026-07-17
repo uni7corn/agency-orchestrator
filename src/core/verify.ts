@@ -13,6 +13,14 @@ import type { LLMConfig, LLMConnector } from '../types.js';
 const VERIFY_TRUNC = 20000;
 const trunc = (s: string, n = VERIFY_TRUNC) => (s.length > n ? s.slice(0, n) + '\n…[截断]' : s);
 
+// 核验调用的外层超时兜底（同 executor.withTimeout 的哲学：connector 内部超时失灵时
+// 不能让一次"轻量核验"挂死整条产线）。核验不值得等太久，超时按核验不可用处理。
+const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> =>
+  ms <= 0 ? promise : Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`核验超时 (${ms}ms)`)), ms).unref?.()),
+  ]);
+
 export interface VerifyVerdict {
   pass: boolean;
   /** 未满足的条目（criterion=哪条标准，why=一句话原因） */
@@ -30,10 +38,16 @@ export function parseVerify(raw: string): VerifyVerdict | null {
       ? j.failed
           .map((f: unknown) => {
             const o = (f ?? {}) as Record<string, unknown>;
-            return { criterion: String(o.criterion ?? '').trim(), why: String(o.why ?? '').trim() };
+            // 压平内嵌换行：criterion/why 的每个下游消费方（CLI ⚠️ 行、步骤文件头引用块、
+            // SSE 逐行解析）都按单行处理，换行会逃出引用块/被误判为正文
+            const flat = (v: unknown) => String(v ?? '').replace(/\s+/g, ' ').trim();
+            return { criterion: flat(o.criterion), why: flat(o.why) };
           })
           .filter((f: { criterion: string; why: string }) => f.criterion || f.why)
       : [];
+    // pass=false 却给不出任何未满足条目 → 无法指导返工，也没法向用户解释"哪里没过"，
+    // 视为本次核验不可用（触发第二次尝试/跳过），别带着空清单去返工
+    if (j.pass !== true && failed.length === 0) return null;
     // 保守裁决：模型说 pass 但又列了未满足条目 → 以条目为准，算未通过
     return { pass: j.pass === true && failed.length === 0, failed };
   } catch {
@@ -73,6 +87,9 @@ export async function verifyAcceptance(
       ].join('\n');
 
   const tokens = { input: 0, output: 0 };
+  // 结论 JSON 要逐字回抄未满足条目原文——上限必须随验收标准长度伸缩，
+  // 否则条目越多/越长（恰恰是最差的产出）越容易截断 JSON、核验静默失效
+  const maxTokens = Math.min(2000, 500 + Math.ceil(acceptance.length * 1.2));
   // 两次尝试：第二次换更严厉的 system 逼纯 JSON（同 compare.judgeOnce 的成熟套路）
   for (let attempt = 0; attempt < 2; attempt++) {
     const sys = attempt === 0
@@ -80,7 +97,10 @@ export async function verifyAcceptance(
       : (zh ? '你必须只输出一行纯 JSON，绝对不要代码块标记、前言或任何解释文字。'
             : 'You MUST output exactly one line of raw JSON. No code fences, no preamble, no explanation.');
     try {
-      const res = await connector.chat(sys, prompt, { ...llm, max_tokens: 500, temperature: 0 });
+      const res = await withTimeout(
+        connector.chat(sys, prompt, { ...llm, max_tokens: maxTokens, temperature: 0 }),
+        llm.timeout || 600_000,
+      );
       tokens.input += res.usage.input_tokens;
       tokens.output += res.usage.output_tokens;
       const verdict = parseVerify(res.content);
