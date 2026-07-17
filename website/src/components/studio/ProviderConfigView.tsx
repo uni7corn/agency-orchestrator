@@ -715,8 +715,10 @@ export function ProviderConfigView({
               </span>
             )}
             {test.status === "fail" && (
-              <span className="inline-flex min-w-0 items-center gap-1 text-xs text-red-500">
-                <XCircle className="size-3.5 shrink-0" /> <span className="truncate">{test.msg}</span>
+              <span className="inline-flex min-w-0 items-start gap-1 text-xs text-red-500">
+                <XCircle className="mt-0.5 size-3.5 shrink-0" />
+                {/* 别截成半句谜语:最多两行折行,hover 看全文 */}
+                <span className="line-clamp-2 break-all" title={test.msg}>{test.msg}</span>
               </span>
             )}
             {!isAdd && !isOllama && status?.hasKey && !status.fromEnv && (

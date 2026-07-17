@@ -1434,6 +1434,9 @@ app.get('/api/config', async (_req, res) => {
 
 app.post('/api/config', (req, res) => {
   const { provider, apiKey, baseUrl, model } = req.body || {};
+  if (typeof apiKey === 'string' && apiKey.trim() && /[^\x20-\x7E]/.test(apiKey)) {
+    return res.status(400).json({ error: 'API key 含中文/全角字符——通常是复制时把旁边的说明文字一起带上了，请只粘贴 key 本身（重新复制或删掉多余字符）' });
+  }
   // Codex 中转走 ~/.codex/config.toml + auth.json，跟其它 provider 的存储方式完全不同，
   // 单独分支处理，不进下面 KEY_ENV/web-keys.json 那套逻辑。
   if (provider === 'codex-cli') {
@@ -1571,9 +1574,17 @@ app.delete('/api/custom-providers/:id', (req, res) => {
 });
 
 // ── Test a provider's key with a minimal real API call ──
+// API key 只可能是可打印 ASCII——含中文/全角字符（复制时把说明文字一起带上了）时，
+// undici 往 authorization 头塞会抛底层 ByteString 错误，用户完全看不懂。前置校验给人话。
+const keyCharsetError = (key) => (typeof key === 'string' && /[^\x20-\x7E]/.test(key))
+  ? 'API key 含中文/全角字符——通常是复制时把旁边的说明文字一起带上了，请只粘贴 key 本身（重新复制或删掉多余字符）'
+  : null;
+
 app.post('/api/test-provider', async (req, res) => {
   // apiKey/baseUrl/model 可由请求带入覆盖:配置页"填了就能测",不用先保存
   const { provider, apiKey: overrideKey, baseUrl: overrideBase, model: overrideModel } = req.body || {};
+  const keyErr = keyCharsetError(overrideKey);
+  if (keyErr) return res.json({ ok: false, error: keyErr });
   await getRemoteManifest();
   const isCustomProvider = readCustomProviders(CUSTOM_PROVIDERS_FILE).some((p) => p.id === provider) || !!remoteProviderSpec(provider);
   if (!provider || (!KEY_ENV[provider] && provider !== 'ollama' && !isCustomProvider)) return res.status(400).json({ ok: false, error: `unknown provider: ${provider || '(空)'}（引擎不认识该供应商——若刚更新过 AO 或重新构建，请重启引擎后重试）` });
@@ -1617,8 +1628,15 @@ app.post('/api/test-provider', async (req, res) => {
     }
     const latencyMs = Date.now() - t0;
     if (!r.ok) {
-      const txt = (await r.text().catch(() => '')).slice(0, 200);
-      return res.json({ ok: false, error: `HTTP ${r.status} ${txt}` });
+      // 上游报错多为 {"error":{"message":"..."}} JSON——抽出人读 message，
+      // 别把整段原始 JSON 甩给用户（会被 UI 截断，只见半句）
+      const txt = await r.text().catch(() => '');
+      let msg = txt;
+      try {
+        const j = JSON.parse(txt);
+        msg = j?.error?.message || j?.message || (typeof j?.error === 'string' ? j.error : txt);
+      } catch { /* 非 JSON 原样透传 */ }
+      return res.json({ ok: false, error: `HTTP ${r.status} ${String(msg).slice(0, 300)}` });
     }
     return res.json({ ok: true, latencyMs });
   } catch (e) {
@@ -1632,6 +1650,8 @@ app.post('/api/test-provider', async (req, res) => {
 // body 可带 baseUrl/apiKey 覆盖：add-custom 场景用户刚填了还没保存也能先拉列表。
 app.post('/api/provider-models', async (req, res) => {
   const { provider, baseUrl: overrideBase, apiKey: overrideKey, protocol } = req.body || {};
+  const keyErr = keyCharsetError(overrideKey);
+  if (keyErr) return res.json({ ok: false, error: keyErr });
   await getRemoteManifest();
   const saved = provider ? (readKeys()[provider] || {}) : {};
   const spec = provider ? API_PROVIDER_MAP[provider] : null;
