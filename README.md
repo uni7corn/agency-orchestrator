@@ -33,10 +33,17 @@
 > 🆕 **可视化画布**：工作流可在画布上拖拽节点 / 连线（自动防环）/ 改任务·角色 / 保存，运行时节点按状态实时点亮。
 > 🆕 **创意库**：内置图像生成提示词库（Nano Banana / Gemini，可搜索 / 分类 / 一键复制）。
 > 🆕 **零配置首跑**：本机已登录 Claude Code / Gemini CLI 等？AO 自动探测并直接用，连 API key 都不用配。
+> 🆕 **我的角色 + 提示生成**：「提示生成」页产出的 system prompt 一键存为自建角色（`~/.ao/roles`），组队页「我的」分类直接用；角色卡可 ☆ 收藏常用。
+> 🆕 **多语言角色库**：`npm i agency-agents-ko`（ko / ru / pt-br / id / ar）后，Studio「角色库」下拉一键切换，工作流 `agents_dir` 写包名即可跑。
 
 <p align="center">
   <img src="./docs/screenshots/studio-workflows-zh.png" alt="Studio · 工作流模板：内置模板一键运行" width="800"><br/>
   <em>工作流：内置模板一键运行，也能对比多个模板</em>
+</p>
+
+<p align="center">
+  <img src="./docs/screenshots/studio-role-lib-ko.png" alt="Studio · 角色组队：多语言角色库下拉（图为韩语库）" width="800"><br/>
+  <em>角色组队：☆ 收藏常用、「我的」自建角色，一键切换多语言角色库（图为韩语库）</em>
 </p>
 
 > 启动：`ao web`（本地，密钥只存你自己机器、绝不外传）。也有 [桌面客户端下载](https://github.com/jnMetaCode/agency-orchestrator/releases/latest)（Electron · macOS / Windows / Linux）。
@@ -347,6 +354,8 @@ ao team show 技术博客组  # 查看阵容构成
 `ao run --team` 的本质 = compose 时把可选角色**锁定**为团队那几个，所以既不会漏人、也不会幻觉出别的角色。团队存在 `~/.ao/teams/*.team.yaml`（纯 YAML，可直接拷贝分享），**命令行和网页 Studio 共用同一份**——Studio 里勾选角色后点「存为团队」，命令行立刻 `ao run --team` 可用，反之亦然。
 
 > 自带私有专家：设环境变量 `AO_AGENTS_DIR=/你的角色目录`，`run / compose / roles / web` 全部改用你自己的角色库。
+> 自建单个角色：放 `~/.ao/roles/<id>.md`（与内置库叠加），工作流里用 `my/<id>` 引用；Studio「角色组队 → 我的」可视化增删。
+> 多语言角色库：`npm i agency-agents-ko`（另有 `pt-br` / `ar` / `id` / `ru`），工作流 `agents_dir: "agency-agents-ko"`，Studio 角色页出现「角色库」下拉。
 >
 > 固定全局目录：设 `AO_HOME=~/.ao`（或任意目录），运行产物 `ao-output`、`compose`/`--team` 生成的工作流都落到那里，不再随执行目录散落（#20）。也可用 `AO_OUTPUT_DIR` / `AO_WORKFLOWS_DIR` 单独指定。不设则维持原行为（写到当前目录）。
 
@@ -585,7 +594,7 @@ ao-output/产品需求评审-2026-03-22/
 
 ```
 你的 AI 会员 ──→ agency-orchestrator ──→ 400+ 个 AI 角色协作 ──→ 高质量输出
-                     │                  (267 中文 + 184 英文)
+                     │                  (267 中文 + 184 英文 + 5 语种)
     ┌────────────────┼────────────────┐
     ▼                ▼                ▼
   14 个 AI 编程工具    CLI 模式         MCP Server
@@ -598,6 +607,7 @@ ao-output/产品需求评审-2026-03-22/
 | **本项目**（agency-orchestrator） | 🚀 编排引擎 | 一句话 → 267 专家协作，**几分钟出方案**（11 家 LLM / 7 免费） |
 | [agency-agents-zh](https://github.com/jnMetaCode/agency-agents-zh) ![](https://img.shields.io/github/stars/jnMetaCode/agency-agents-zh?style=flat&label=⭐) | 🎭 中文角色库 | 267 个**即插即用** AI 专家，含 52 中国原创（小红书 / 抖音 / 飞书 / 钉钉） |
 | [agency-agents](https://github.com/msitarzewski/agency-agents) | 🎭 英文角色库 | 184 个英文 AI 角色（by [@msitarzewski](https://github.com/msitarzewski)，MIT）——**已随 npm 包内置**，英文任务 `ao compose` 自动启用，无需单独安装 |
+| [ko](https://github.com/jnMetaCode/agency-agents-ko) · [ru](https://github.com/jnMetaCode/agency-agents-ru) · [pt-BR](https://github.com/jnMetaCode/agency-agents-pt-BR) · [id](https://github.com/jnMetaCode/agency-agents-id) · [ar](https://github.com/jnMetaCode/agency-agents-ar) | 🌍 多语言角色库 | 各 187 个（184 上游翻译 + 3 本地市场原创），`npm i agency-agents-<lang>` 后 Studio「角色库」下拉切换 |
 | [superpowers-zh](https://github.com/jnMetaCode/superpowers-zh) ![](https://img.shields.io/github/stars/jnMetaCode/superpowers-zh?style=flat&label=⭐) | 🧠 工作方法论 | 20 个 skills 教 AI 怎么干活（TDD / 调试 / 代码审查等） |
 | [ai-coding-guide](https://github.com/jnMetaCode/ai-coding-guide) | 📖 实战教程 | 66 个 Claude Code 技巧 + 9 款工具最佳实践 + 配置模板 |
 | [shellward](https://github.com/jnMetaCode/shellward) | 🛡️ 安全中间件 | 8 层防御 + DLP 数据流 + 注入检测，**零依赖**（含 MCP Server） |
