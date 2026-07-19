@@ -20,6 +20,8 @@ export interface ChatRole {
   path: string;
   name: string;
   color?: string;
+  /** 角色所属语言库(zh/en/ko/…)——带人设聊天时后端按它解析角色文件 */
+  lib?: string;
 }
 
 interface Bubble extends ChatMessage {
@@ -79,6 +81,7 @@ export function ChatPanel({
         provider: provider || undefined,
         lang,
         role: role?.path,
+        roleLang: role?.lib,
       });
       const meta = r.usage ? `${r.usage.input_tokens} → ${r.usage.output_tokens}${t.studio.chat.tokensSuffix}` : undefined;
       setMessages((cur) => [...cur, { role: "assistant", content: r.content, meta }]);

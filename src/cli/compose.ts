@@ -125,14 +125,14 @@ export function detectLang(text: string): 'zh' | 'en' {
  * @param options.autoRun 如果 true，生成的 YAML 不需要 inputs，用户描述直接嵌入 task
  * @param options.lang 语言：'zh' 中文提示词 + agency-agents-zh，'en' 英文提示词 + agency-agents
  */
-export function buildComposeSystemPrompt(catalog: string, options?: { autoRun?: boolean; provider?: string; model?: string; lang?: 'zh' | 'en'; timeoutMs?: number }): string {
+export function buildComposeSystemPrompt(catalog: string, options?: { autoRun?: boolean; provider?: string; model?: string; lang?: 'zh' | 'en'; timeoutMs?: number; agentsDirName?: string }): string {
   const lang = options?.lang ?? 'zh';
   return lang === 'en'
     ? buildComposeSystemPromptEn(catalog, options)
     : buildComposeSystemPromptZh(catalog, options);
 }
 
-function buildComposeSystemPromptEn(catalog: string, options?: { autoRun?: boolean; provider?: string; model?: string; timeoutMs?: number }): string {
+function buildComposeSystemPromptEn(catalog: string, options?: { autoRun?: boolean; provider?: string; model?: string; timeoutMs?: number; agentsDirName?: string }): string {
   const autoRun = options?.autoRun ?? false;
   const provider = options?.provider || 'deepseek';
   const model = options?.model;
@@ -182,7 +182,7 @@ Output a complete YAML code block in this format:
 name: "Workflow Name"
 description: "One-line description"
 
-agents_dir: "agency-agents"
+agents_dir: "${options?.agentsDirName || 'agency-agents'}"
 
 llm:
   provider: ${provider}
@@ -251,7 +251,7 @@ ${catalog}
 - Limit word count in each writing step's task (e.g., "under 500 words") to avoid overly long single-step generation times`;
 }
 
-function buildComposeSystemPromptZh(catalog: string, options?: { autoRun?: boolean; provider?: string; model?: string; timeoutMs?: number }): string {
+function buildComposeSystemPromptZh(catalog: string, options?: { autoRun?: boolean; provider?: string; model?: string; timeoutMs?: number; agentsDirName?: string }): string {
   const autoRun = options?.autoRun ?? false;
   const provider = options?.provider || 'deepseek';
   const model = options?.model;
@@ -301,7 +301,7 @@ ${autoRun ? inputsSection : ''}
 name: "工作流名称"
 description: "一句话描述"
 
-agents_dir: "agency-agents-zh"
+agents_dir: "${options?.agentsDirName || 'agency-agents-zh'}"
 
 llm:
   provider: ${provider}
@@ -449,6 +449,8 @@ export async function composeWorkflow(options: {
   saveDir?: string;
   /** R3.2 预算模式：把「轻活」步骤自动降到便宜档，省钱不掉关键质量（默认关，零回归） */
   budget?: boolean;
+  /** 生成 YAML 里 agents_dir 的名字（多语言角色库如 "agency-agents-ko"）；缺省按 lang 用 zh/en 内置库名 */
+  agentsDirName?: string;
 }): Promise<{ yaml: string; savedPath: string; relativePath: string; warnings: string[] }> {
   const { description, agentsDir, llmConfig } = options;
   const lang = options.lang ?? detectLang(description);
@@ -473,6 +475,7 @@ export async function composeWorkflow(options: {
     model: options.llmConfig.model,
     lang,
     timeoutMs: options.timeoutMs,
+    agentsDirName: options.agentsDirName,
   });
   let userPrompt = buildComposeUserPrompt(description, lang);
   if (options.pinnedRoles?.length) {

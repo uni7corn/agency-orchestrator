@@ -101,6 +101,11 @@
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
+    "agency-agents-ar": "^1.0.1",
+    "agency-agents-id": "^1.0.1",
+    "agency-agents-ko": "^1.0.1",
+    "agency-agents-pt-br": "^1.0.1",
+    "agency-agents-ru": "^1.0.1",
     "typescript": "^5.7.0"
   },
   "optionalDependencies": {

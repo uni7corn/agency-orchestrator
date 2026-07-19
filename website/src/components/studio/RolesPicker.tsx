@@ -44,6 +44,23 @@ export function RolesPicker({
   const [cat, setCat] = useState<string>("all");
   const [selected, setSelected] = useState<Record<string, Role>>({});
 
+  // 角色库语言：默认跟随站点语言(zh/en)，装了官方语言包(agency-agents-ko 等)后可切换。
+  // 选择存 localStorage；下拉只在有额外语言包时出现。
+  const defaultLib = lang === "en" ? "en" : "zh";
+  const [roleLibs, setRoleLibs] = useState<{ id: string; label: string }[]>([]);
+  const [roleLib, setRoleLibState] = useState<string>(() =>
+    (typeof window !== "undefined" && window.localStorage.getItem("ao-role-lib")) || "",
+  );
+  const effLib = roleLib || defaultLib;
+  const setRoleLib = (v: string) => {
+    setRoleLibState(v);
+    if (typeof window !== "undefined") window.localStorage.setItem("ao-role-lib", v);
+  };
+  useEffect(() => {
+    if (demo) return;
+    api.config().then((c) => setRoleLibs(c.roleLibs ?? [])).catch(() => setRoleLibs([]));
+  }, [demo]);
+
   // 用户自选「常用」角色：点星收藏（localStorage，与工作流的 ☆ 同一交互）
   const [favs, setFavs] = useState<Set<string>>(() => getFavRoles());
   const toggleFav = (r: Role, e: React.MouseEvent) => {
@@ -113,16 +130,16 @@ export function RolesPicker({
     }
     setLoading(true);
     api
-      .roles(lang)
+      .roles(effLib)
       .then((r) => setRoles(r))
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
-  }, [lang, demo]);
+  }, [lang, demo, effLib]);
 
   // 新建/删除自建角色后静默刷新列表（不闪 loading）
   const refreshRoles = () => {
     if (demo) return;
-    api.roles(lang).then((r) => setRoles(r)).catch(() => {});
+    api.roles(effLib).then((r) => setRoles(r)).catch(() => {});
   };
 
   const createMyRole = async () => {
@@ -273,7 +290,7 @@ export function RolesPicker({
       return;
     }
     track("plain_chat_open", { seeded: !!task.trim(), persona: "role" });
-    onPlainChat?.(task.trim() || undefined, { path: roleKey(r), name: r.name, color: r.color });
+    onPlainChat?.(task.trim() || undefined, { path: roleKey(r), name: r.name, color: r.color, lib: effLib });
   };
 
   // auto=true：不锁定阵容，传空 roles 让后端 LLM 自动组队（对应 CLI `ao compose "一句话"`）。
@@ -298,6 +315,7 @@ export function RolesPicker({
         provider: provider || undefined,
         lang,
         budget,
+        roleLang: effLib,
       });
       track("compose_success", { mode });
       // Preview the composed team before running (not a black box).
@@ -458,6 +476,18 @@ export function RolesPicker({
             className="h-10 w-full rounded-xl border border-border/70 bg-card/60 pl-9 pr-3 text-sm outline-none focus:border-primary/50"
           />
         </div>
+        {roleLibs.length > 2 && (
+          <select
+            value={effLib}
+            onChange={(e) => setRoleLib(e.target.value)}
+            title={t.studio.roles.libLabel}
+            className="h-10 rounded-xl border border-border/70 bg-card/60 px-2.5 text-sm outline-none focus:border-primary/50"
+          >
+            {roleLibs.map((l) => (
+              <option key={l.id} value={l.id}>{l.label}</option>
+            ))}
+          </select>
+        )}
         <span className="text-sm text-muted-foreground">{filtered.length} {t.studio.roles.rolesCountSuffix}</span>
       </div>
 
@@ -742,7 +772,7 @@ export function RolesPicker({
           onClose={() => { setConfirmDelRole(null); setDelRoleErr(null); }}
         />
       )}
-      {detail && <RoleDetail role={detail} onClose={() => setDetail(null)} onChat={(seed, r) => onPlainChat?.(seed, r)} demo={demo} onInstallPrompt={onInstallPrompt} />}
+      {detail && <RoleDetail role={detail} roleLang={effLib} onClose={() => setDetail(null)} onChat={(seed, r) => onPlainChat?.(seed, r)} demo={demo} onInstallPrompt={onInstallPrompt} />}
       {preview && (
         <ComposePreview
           result={preview.result}

@@ -31,12 +31,15 @@ async function copyText(text: string): Promise<boolean> {
 
 export function RoleDetail({
   role,
+  roleLang,
   onClose,
   onChat,
   demo,
   onInstallPrompt,
 }: {
   role: Role;
+  /** 角色库语言(zh/en/ko/…)——详情正文按它拉取；缺省跟随站点语言 */
+  roleLang?: string;
   onClose: () => void;
   /** 打开统一聊天面板：带该角色人设的多轮对话；seed = 输入框里已敲的第一条消息 */
   onChat: (seed: string | undefined, role: ChatRole) => void;
@@ -67,7 +70,7 @@ export function RoleDetail({
     if (role.content) return;
     const load = demo
       ? demoRoleContent(lang, role.category, role.id).then((content) => ({ ...role, content }))
-      : api.role(role.category, role.id, lang);
+      : api.role(role.category, role.id, roleLang ?? lang);
     load
       .then(setFull)
       .catch(() => setFull(role))
@@ -79,7 +82,7 @@ export function RoleDetail({
       onInstallPrompt?.();
       return;
     }
-    onChat(task.trim() || undefined, { path: seed, name: role.name, color: role.color });
+    onChat(task.trim() || undefined, { path: seed, name: role.name, color: role.color, lib: roleLang });
     onClose();
   };
 

@@ -51,8 +51,39 @@ const CUSTOM_AGENTS_DIR = process.env.AO_AGENTS_DIR ? resolve(process.env.AO_AGE
 const USER_ROLES_DIR = process.env.AO_USER_ROLES_DIR
   ? resolve(process.env.AO_USER_ROLES_DIR)
   : join(homedir(), '.ao', 'roles');
+// 官方多语言角色库（npm 包）。装了才出现在 Studio「角色库」下拉里；zh/en 内置必有。
+// 只认 node_modules（生产与开发一致），不做同级仓兜底——避免本地副本掩盖已发布包的问题。
+const LANG_LIBS = [
+  { id: 'pt-br', pkg: 'agency-agents-pt-br', label: 'Português (BR)' },
+  { id: 'ko', pkg: 'agency-agents-ko', label: '한국어' },
+  { id: 'ar', pkg: 'agency-agents-ar', label: 'العربية' },
+  { id: 'id', pkg: 'agency-agents-id', label: 'Bahasa Indonesia' },
+  { id: 'ru', pkg: 'agency-agents-ru', label: 'Русский' },
+];
+function langLibDir(id) {
+  const lib = LANG_LIBS.find(l => l.id === id);
+  if (!lib) return '';
+  const dir = join(ROOT, 'node_modules', lib.pkg);
+  return existsSync(dir) ? dir : '';
+}
+/** 归一化角色库语言：zh/en 或已安装的语言包 id；其余一律回落 zh。 */
+function normalizeRoleLang(lang) {
+  if (lang === 'en') return 'en';
+  if (typeof lang === 'string' && langLibDir(lang)) return lang;
+  return 'zh';
+}
+/** Studio「角色库」下拉的可选项（zh/en + 已安装语言包）。 */
+function installedRoleLibs() {
+  return [
+    { id: 'zh', label: '中文' },
+    { id: 'en', label: 'English' },
+    ...LANG_LIBS.filter(l => langLibDir(l.id)).map(l => ({ id: l.id, label: l.label })),
+  ];
+}
 function agentsDirFor(lang) {
   if (CUSTOM_AGENTS_DIR && existsSync(CUSTOM_AGENTS_DIR)) return CUSTOM_AGENTS_DIR;
+  const libDir = langLibDir(lang);
+  if (libDir) return libDir;
   if (lang === 'en' && existsSync(AGENTS_DIR_EN)) return AGENTS_DIR_EN;
   return existsSync(AGENTS_DIR) ? AGENTS_DIR : AGENTS_DIR_EN;
 }
@@ -313,7 +344,7 @@ function getRoleMeta(role) {
       const raw = readFileSync(filePath, 'utf-8');
       const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
       if (fmMatch) {
-        const fm = yaml.load(fmMatch[1]);
+        const fm = parseFrontmatter(fmMatch[1]);
         const meta = { name: fm.name || null, description: fm.description || '', color: fm.color || '#888' };
         roleMetaCache.set(role, meta);
         return meta;
@@ -771,9 +802,25 @@ const CATEGORY_NAMES = {
   },
 };
 
+// frontmatter 解析:先严格 YAML;失败(翻译文本裸冒号等)退回引擎同款的逐行宽松解析,
+// 保证角色不因个别字段格式问题从 Studio 列表消失(引擎 src/agents/loader.ts 本就宽松)。
+function parseFrontmatter(block) {
+  try {
+    const fm = yaml.load(block);
+    if (fm && typeof fm === 'object') return fm;
+  } catch { /* fall through */ }
+  const fm = {};
+  for (const line of String(block).split('\n')) {
+    const i = line.indexOf(':');
+    if (i > 0) fm[line.slice(0, i).trim()] = line.slice(i + 1).trim().replace(/^["']|["']$/g, '');
+  }
+  return fm;
+}
+
 function loadRoles(lang) {
   const agentsDir = agentsDirFor(lang);
-  const categoryNames = CATEGORY_NAMES[lang === 'en' ? 'en' : 'zh'];
+  // 分类显示名：zh 用中文，en 及各语言包用英文（语言包目录名就是英文部门名）
+  const categoryNames = CATEGORY_NAMES[lang === 'zh' ? 'zh' : 'en'];
 
   const roles = [];
   // 用户自建角色（~/.ao/roles）排最前，归「我的」分类；custom 标记供前端渲染删除入口。
@@ -784,7 +831,7 @@ function loadRoles(lang) {
         const raw = readFileSync(join(USER_ROLES_DIR, f), 'utf-8');
         const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
         if (!fmMatch) continue;
-        const fm = yaml.load(fmMatch[1]);
+        const fm = parseFrontmatter(fmMatch[1]);
         if (!fm || !fm.name) continue;
         roles.push({
           id: f.replace('.md', ''),
@@ -809,7 +856,7 @@ function loadRoles(lang) {
         const raw = readFileSync(join(catDir, f), 'utf-8');
         const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
         if (!fmMatch) continue;
-        const fm = yaml.load(fmMatch[1]);
+        const fm = parseFrontmatter(fmMatch[1]);
         roles.push({
           id: f.replace('.md', ''),
           category: cat,
@@ -826,7 +873,7 @@ function loadRoles(lang) {
 
 const rolesCache = {};
 app.get('/api/roles', (req, res) => {
-  const lang = req.query.lang === 'en' ? 'en' : 'zh';
+  const lang = normalizeRoleLang(req.query.lang);
   if (!rolesCache[lang]) rolesCache[lang] = loadRoles(lang);
   res.json(rolesCache[lang]);
 });
@@ -834,12 +881,12 @@ app.get('/api/roles', (req, res) => {
 app.get('/api/roles/:category/:id', (req, res) => {
   // 「我的」分类走用户角色目录（平铺，无子目录）
   const isMy = req.params.category === 'my';
-  const baseDir = isMy ? USER_ROLES_DIR : agentsDirFor(req.query.lang === 'en' ? 'en' : 'zh');
+  const baseDir = isMy ? USER_ROLES_DIR : agentsDirFor(normalizeRoleLang(req.query.lang));
   const filePath = isMy ? join(baseDir, req.params.id + '.md') : join(baseDir, req.params.category, req.params.id + '.md');
   if (!isInside(filePath, baseDir) || !existsSync(filePath)) return res.status(404).json({ error: 'not found' });
   const raw = readFileSync(filePath, 'utf-8');
   const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
-  const fm = fmMatch ? yaml.load(fmMatch[1]) : {};
+  const fm = fmMatch ? parseFrontmatter(fmMatch[1]) : {};
   const body = fmMatch ? raw.slice(fmMatch[0].length).trim() : raw;
   res.json({ id: req.params.id, category: req.params.category, name: fm.name || req.params.id, description: fm.description || '', color: fm.color || '#888', content: body });
 });
@@ -889,7 +936,7 @@ app.delete('/api/roles/my/:id', (req, res) => {
 
 // ── Run single role ──
 app.post('/api/run-role', (req, res) => {
-  const { role, task, provider, lang } = req.body || {};
+  const { role, task, provider, lang, roleLang } = req.body || {};
   if (!role || !task) return res.status(400).json({ error: 'role and task required' });
 
   // Build a single-step workflow. Top-level llm is required; keyed providers
@@ -900,12 +947,14 @@ app.post('/api/run-role', (req, res) => {
   const roleShort = String(role).split('/').pop();
   // 卡片/历史标题用角色显示名（中文站「人类学家」而非英文 slug），来自角色 frontmatter
   const langKey = lang === 'en' ? 'en' : 'zh';
-  if (!rolesCache[langKey]) rolesCache[langKey] = loadRoles(langKey);
-  const roleName = rolesCache[langKey].find(r => r.id === roleShort)?.name || roleShort;
+  // 角色库语言(roleLang)决定从哪套库解析角色;界面语言(langKey)只影响命名措辞
+  const roleLib = normalizeRoleLang(roleLang || langKey);
+  if (!rolesCache[roleLib]) rolesCache[roleLib] = loadRoles(roleLib);
+  const roleName = rolesCache[roleLib].find(r => r.id === roleShort)?.name || roleShort;
   const wfDoc = {
     name: langKey === 'en' ? `Expert consult: ${roleName}` : `专家咨询: ${roleName}`,
     description: String(task).slice(0, 140),
-    agents_dir: agentsDirFor(langKey),
+    agents_dir: agentsDirFor(roleLib),
     llm: llmSafe,
     steps: [{ id: 'consult', role, task, output: 'result' }],
   };
@@ -1007,7 +1056,7 @@ app.post('/api/run-role', (req, res) => {
 // connector 接口是单轮的 (system, user)，多轮上下文由前端带来的 messages 在这里
 // 折叠进 userMessage。
 app.post('/api/chat', async (req, res) => {
-  const { messages, provider, lang, role } = req.body || {};
+  const { messages, provider, lang, role, roleLang } = req.body || {};
   if (!Array.isArray(messages) || messages.length === 0) return res.status(400).json({ error: 'messages required' });
   // 只带最近 20 条、每条截 8k 字符——闲聊场景防历史无限增长撑爆上下文
   const clean = messages
@@ -1022,8 +1071,10 @@ app.post('/api/chat', async (req, res) => {
     ? 'You are a friendly, knowledgeable AI assistant. Answer directly and concisely — no team building, no role-play. Reply in the language the user writes in.'
     : '你是一位友好、靠谱的 AI 助手。直接、简洁地回答用户，不需要组建团队或扮演特定角色。用用户使用的语言回复。';
   if (role && typeof role === 'string') {
-    const agentsDir = agentsDirFor(en ? 'en' : 'zh');
-    const filePath = join(agentsDir, role + '.md');
+    // my/ 自建角色走用户角色目录(平铺);其余按角色库语言(roleLang 优先于站点语言)解析
+    const isMy = role.startsWith('my/');
+    const agentsDir = isMy ? USER_ROLES_DIR : agentsDirFor(normalizeRoleLang(roleLang || (en ? 'en' : 'zh')));
+    const filePath = isMy ? join(agentsDir, role.slice(3) + '.md') : join(agentsDir, role + '.md');
     if (!isInside(filePath, agentsDir) || !existsSync(filePath)) return res.status(400).json({ error: `unknown role: ${role}` });
     const raw = readFileSync(filePath, 'utf-8');
     const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
@@ -1054,7 +1105,7 @@ app.post('/api/chat', async (req, res) => {
 
 // ── Compose a workflow from picked roles (LLM orchestrates the chosen cast) ──
 app.post('/api/compose', async (req, res) => {
-  const { description, roles, name, provider, lang, budget } = req.body || {};
+  const { description, roles, name, provider, lang, budget, roleLang } = req.body || {};
   if (!description || typeof description !== 'string') return res.status(400).json({ error: 'description required' });
   // R2.2 首跑引导：无可用凭证时，返回结构化引导（前端渲染三选一），而不是让底层连接器抛晦涩错。
   if (!composeProviderReady(provider)) {
@@ -1077,9 +1128,14 @@ app.post('/api/compose', async (req, res) => {
     const { composeWorkflow } = await import('../dist/cli/compose.js');
     const trimmedName = name && String(name).trim() ? String(name).trim() : undefined;
     const composeLang = lang === 'en' ? 'en' : 'zh';
+    // 角色库语言(roleLang)与提示词语言(composeLang)解耦:选了语言包则从该包组队,
+    // 生成的 YAML agents_dir 写包名,findAgentsDir 会在 node_modules 里解析到它
+    const roleLib = normalizeRoleLang(roleLang || composeLang);
+    const roleLibPkg = LANG_LIBS.find(l => l.id === roleLib)?.pkg;
     const result = await composeWorkflow({
       description,
-      agentsDir: agentsDirFor(composeLang),
+      agentsDir: agentsDirFor(roleLib),
+      agentsDirName: roleLibPkg,
       llmConfig: buildLLMConfig(provider),
       pinnedRoles,
       outputName: trimmedName,
@@ -1504,6 +1560,8 @@ app.get('/api/config', async (_req, res) => {
     relayPresets: manifest.relayPresets,
     removedProviders: manifest.removedProviders,
     defaultProvider: process.env.AO_PROVIDER || 'duoyuanx',
+    // 角色库下拉的可选项:zh/en + 已安装的官方语言包(agency-agents-ko 等)
+    roleLibs: installedRoleLibs(),
   });
 });
 

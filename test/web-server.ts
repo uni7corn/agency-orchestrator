@@ -154,6 +154,17 @@ try {
     assert((await fetch(base + `/api/roles/my/${created.id}`, { method: 'DELETE' })).status === 200, 'DELETE /api/roles/my/:id → 200 删除');
     assert((await fetch(base + `/api/roles/my/${created.id}`, { method: 'DELETE' })).status === 404, 'DELETE 已删角色再删 → 404');
 
+    // ── 多语言角色库(roleLibs / ?lang=<libId>) ──
+    const cfgLibs = (await (await fetch(base + '/api/config')).json()).roleLibs as Array<{ id: string; label: string }>;
+    assert(Array.isArray(cfgLibs) && cfgLibs.some((l) => l.id === 'zh') && cfgLibs.some((l) => l.id === 'en'), '/api/config roleLibs 至少含 zh/en');
+    if (cfgLibs.some((l) => l.id === 'ko')) {
+      const koRoles = (await (await fetch(base + '/api/roles?lang=ko')).json()) as Array<{ id: string; name: string }>;
+      assert(koRoles.length > 100, `?lang=ko 返回语言包角色(${koRoles.length})`);
+      assert(koRoles.some((r) => r.id === 'marketing-coupang-seller'), 'ko 库含韩国市场原创角色');
+    }
+    const fallback = (await (await fetch(base + '/api/roles?lang=hax')).json()) as unknown[];
+    assert(Array.isArray(fallback) && fallback.length > 0, '未知 lang 回落 zh 而不是报错');
+
     // ── 报告导出 /api/export ──
     assert(await post(base, '/api/export', { format: 'docx' }) === 400, '/api/export 缺 markdown → 400');
     assert(await post(base, '/api/export', { markdown: '# x', format: 'rtf' }) === 400, '/api/export 非法格式 → 400');

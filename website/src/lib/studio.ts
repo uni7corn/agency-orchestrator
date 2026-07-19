@@ -295,6 +295,8 @@ export interface ConfigResponse {
   relayPresets?: CliRelayPreset[];
   removedProviders?: string[];
   defaultProvider: string;
+  /** 角色库下拉可选项:zh/en + 已安装的官方语言包(agency-agents-ko 等) */
+  roleLibs?: { id: string; label: string }[];
 }
 
 /**
@@ -485,13 +487,13 @@ export const api = {
   deleteCustomProvider: (id: string) => delJSON<{ ok: boolean }>(`/custom-providers/${encodeURIComponent(id)}`),
   updateCustomProvider: (id: string, body: { name?: string; note?: string; homepageUrl?: string }) =>
     putJSON<{ ok: boolean }>(`/custom-providers/${encodeURIComponent(id)}`, body),
-  roles: (lang?: string) => getJSON<Role[]>(`/roles${lang === "en" ? "?lang=en" : ""}`),
+  roles: (lang?: string) => getJSON<Role[]>(`/roles${lang && lang !== "zh" ? `?lang=${encodeURIComponent(lang)}` : ""}`),
   // 我的角色（用户自建，~/.ao/roles）：创建后即出现在角色组队「我的」分类里，可组队/单聊/存团队
   createMyRole: (body: { name: string; description?: string; systemPrompt: string; color?: string; emoji?: string }) =>
     postJSON<{ id: string; role: string; name: string }>("/roles/my", body),
   deleteMyRole: (id: string) => delJSON<{ ok: boolean }>(`/roles/my/${encodeURIComponent(id)}`),
   role: (category: string, id: string, lang?: string) =>
-    getJSON<Role>(`/roles/${category}/${id}${lang === "en" ? "?lang=en" : ""}`),
+    getJSON<Role>(`/roles/${category}/${id}${lang && lang !== "zh" ? `?lang=${encodeURIComponent(lang)}` : ""}`),
   workflows: (lang?: string) => getJSON<Workflow[]>(`/workflows${lang === "en" ? "?lang=en" : ""}`),
   // 仅用户工作流可删（服务端限制目录）；下载复用 /workflows/yaml 原文
   deleteWorkflow: (file: string) => delJSON<{ ok: boolean }>(`/workflows?file=${encodeURIComponent(file)}`),
@@ -508,7 +510,7 @@ export const api = {
   runs: () => getJSON<RunSummary[]>("/runs"),
   run: (id: string) => getJSON<RunSummary>(`/runs/${encodeURIComponent(id)}`),
   // budget:true = 省钱模式，轻活步骤自动降便宜档（后端 R3.2，桌面/web 同一后端）
-  compose: (body: { description: string; roles: string[]; name?: string; provider?: string; lang?: string; budget?: boolean }) =>
+  compose: (body: { description: string; roles: string[]; name?: string; provider?: string; lang?: string; budget?: boolean; roleLang?: string }) =>
     postJSON<ComposeResult>("/compose", body),
   // 团队 / Loadout：可复用角色阵容，与 `ao team` CLI 共用 ~/.ao/teams
   teams: () => getJSON<{ teams: Team[] }>("/teams").then((r) => r.teams),
@@ -523,7 +525,7 @@ export const api = {
     postJSON<CompareResult>("/compare", body),
   // ── 对话：不组队，直接用当前 provider 的模型回答（多轮历史整包带上）。
   // role（如 "engineering/engineering-sre"）可选 = 带该角色人设的多轮对话 ──
-  chat: (body: { messages: ChatMessage[]; provider?: string; lang?: string; role?: string }) =>
+  chat: (body: { messages: ChatMessage[]; provider?: string; lang?: string; role?: string; roleLang?: string }) =>
     postJSON<{ content: string; usage?: { input_tokens: number; output_tokens: number } }>("/chat", body),
   // ── Prompt Lab ──
   optimizePrompt: (body: { rawPrompt: string; mode: PromptMode; provider?: string; lang?: string; model?: string }) =>
@@ -610,7 +612,7 @@ export function runWorkflow(
 }
 
 export function runRole(
-  body: { role: string; task: string; provider?: string; lang?: string },
+  body: { role: string; task: string; provider?: string; lang?: string; roleLang?: string },
   onEvent: SseHandler,
   signal?: AbortSignal,
 ) {
