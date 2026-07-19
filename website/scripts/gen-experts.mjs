@@ -80,8 +80,25 @@ if (!zh || !en) {
   process.exit(1);
 }
 
+// 多语言社区库（npm 包，devDependencies）——装了才生成；分类名用英文（目录名即英文部门名）。
+// key 与 Studio 角色库下拉的 id 一致（web/server.js LANG_LIBS），?lib= 直链两边通用。
+const COMMUNITY_LIBS = [
+  ["ko", "agency-agents-ko"],
+  ["ru", "agency-agents-ru"],
+  ["pt-br", "agency-agents-pt-br"],
+  ["id", "agency-agents-id"],
+  ["ar", "agency-agents-ar"],
+];
+const data = { zh, en };
+for (const [key, pkg] of COMMUNITY_LIBS) {
+  CATEGORY_NAMES[key] = CATEGORY_NAMES.en;
+  const lib = loadLib(join(repoRoot, "node_modules", pkg), key);
+  if (lib && lib.length > 0) data[key] = lib;
+  else console.warn(`⚠️ 跳过 ${pkg}（未安装或为空）——npm i -D ${pkg} 后重跑`);
+}
+
 const outFile = join(__dirname, "..", "src", "content", "experts.json");
 mkdirSync(dirname(outFile), { recursive: true });
-writeFileSync(outFile, JSON.stringify({ zh, en }, null, 0) + "\n", "utf-8");
-console.log(`✅ 生成 ${outFile}\n   zh: ${zh.length} 个专家 | en: ${en.length} 个专家`);
-console.log(`✅ 提示词正文 → ${promptsRoot}/<lang>/<category>/<id>.md`);
+writeFileSync(outFile, JSON.stringify(data, null, 0) + "\n", "utf-8");
+console.log(`✅ 生成 ${outFile}\n   ` + Object.entries(data).map(([k, v]) => `${k}: ${v.length}`).join(" | "));
+console.log(`✅ 提示词正文 → ${promptsRoot}/<lib>/<category>/<id>.md`);

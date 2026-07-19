@@ -17,7 +17,20 @@ interface Expert {
   color: string;
 }
 
-const DATA = expertsData as { zh: Expert[]; en: Expert[] };
+const DATA = expertsData as Record<string, Expert[]>;
+
+// 角色库选项：zh/en 内置 + 社区语言包（experts.json 里有才显示）。
+// key 与 Studio「角色库」下拉、?lib= 直链参数一致。
+const LIB_LABELS: Record<string, string> = {
+  zh: "中文",
+  en: "English",
+  ko: "한국어",
+  ru: "Русский",
+  "pt-br": "Português (BR)",
+  id: "Bahasa Indonesia",
+  ar: "العربية",
+};
+const LIBS = Object.keys(LIB_LABELS).filter((k) => Array.isArray(DATA[k]) && DATA[k].length > 0);
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -54,13 +67,34 @@ function Avatar({ e, className }: { e: Expert; className?: string }) {
 export default function Experts() {
   const { t, lang } = useLanguage();
   useSeo(
-    lang === "en" ? "216 AI Expert Roles — Engineering / Design / Product / Marketing | Agency Orchestrator"
-      : "216 个 AI 专家角色库 — 工程 / 设计 / 产品 / 营销 | Agency Orchestrator",
-    lang === "en" ? "Browse 216 orchestratable AI expert roles. One sentence → AI auto-assembles a team to collaborate."
-      : "浏览 216 个可编排的 AI 专家角色,一句话让系统自动组队协作完成任务。",
+    lang === "en" ? "AI Expert Roles in 7 Languages — Engineering / Design / Product / Marketing | Agency Orchestrator"
+      : "AI 专家角色库（7 种语言）— 工程 / 设计 / 产品 / 营销 | Agency Orchestrator",
+    lang === "en" ? "Browse 1,000+ orchestratable AI expert roles across 7 language libraries. One sentence → AI auto-assembles a team."
+      : "浏览 7 个语言库、上千个可编排的 AI 专家角色,一句话让系统自动组队协作完成任务。",
   );
   const x = t.experts;
-  const all = DATA[lang] ?? DATA.zh;
+  // 角色库切换：?lib= 直链优先（语言仓 README 外链用），否则跟随站点语言；切换写回 URL 便于分享
+  const [lib, setLibState] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const qp = new URLSearchParams(window.location.search).get("lib");
+      if (qp && LIBS.includes(qp)) return qp;
+    }
+    return lang === "en" ? "en" : "zh";
+  });
+  const pickedRef = useRef(typeof window !== "undefined" && !!new URLSearchParams(window.location.search).get("lib"));
+  const setLib = (v: string) => {
+    pickedRef.current = true;
+    setLibState(v);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("lib", v);
+      window.history.replaceState(null, "", url);
+    }
+  };
+  useEffect(() => {
+    if (!pickedRef.current) setLibState(lang === "en" ? "en" : "zh");
+  }, [lang]);
+  const all = DATA[lib] ?? DATA.zh;
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("all");
 
@@ -73,15 +107,15 @@ export default function Experts() {
 
   const fetchPrompt = useCallback(
     async (e: Expert): Promise<string> => {
-      const key = `${lang}/${e.category}/${e.id}`;
+      const key = `${lib}/${e.category}/${e.id}`;
       if (cache.current.has(key)) return cache.current.get(key)!;
-      const res = await fetch(`/prompts/${lang}/${e.category}/${e.id}.md`);
+      const res = await fetch(`/prompts/${lib}/${e.category}/${e.id}.md`);
       if (!res.ok) throw new Error("fetch failed");
       const text = await res.text();
       cache.current.set(key, text);
       return text;
     },
-    [lang],
+    [lib],
   );
 
   const flash = (key: string) => {
@@ -142,8 +176,8 @@ export default function Experts() {
             <p className="mx-auto mt-4 text-pretty leading-relaxed text-muted-foreground">{x.subtitle}</p>
           </div>
 
-          <div className="mx-auto mt-8 max-w-xl">
-            <div className="relative">
+          <div className="mx-auto mt-8 flex max-w-xl gap-2">
+            <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 value={q}
@@ -152,6 +186,18 @@ export default function Experts() {
                 className="w-full rounded-xl border border-border/70 bg-card/60 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-primary/40"
               />
             </div>
+            {LIBS.length > 2 && (
+              <select
+                value={lib}
+                onChange={(e) => { setLib(e.target.value); setCat("all"); }}
+                title={x.libLabel}
+                className="rounded-xl border border-border/70 bg-card/60 px-2.5 text-sm outline-none focus:border-primary/40"
+              >
+                {LIBS.map((k) => (
+                  <option key={k} value={k}>{LIB_LABELS[k]}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
