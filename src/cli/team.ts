@@ -6,7 +6,7 @@
  * team 只保存角色阵容，可以套到任意新需求上（`ao run --team <名字> "新任务"`）。
  *
  * 落地依赖现成机器：`composeWorkflow({ pinnedRoles })` 已支持把角色目录锁成
- * 指定阵容——所以 `ao run --team` 本质 = compose 时把 216 个角色收窄成团队那几个。
+ * 指定阵容——所以 `ao run --team` 本质 = compose 时把 267 个角色收窄成团队那几个。
  *
  * 存储：默认 ~/.ao/teams/<slug>.team.yaml（全局、跨项目可复用、可直接拷贝分享）。
  * 也接受文件路径（`--team ./path.team.yaml`）。
