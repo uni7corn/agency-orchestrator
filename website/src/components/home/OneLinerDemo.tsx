@@ -1,9 +1,10 @@
 import { motion } from "framer-motion";
-import { Check } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ArrowRight } from "lucide-react";
 import { useLanguage } from "@/i18n/LanguageProvider";
 
 export function OneLinerDemo() {
-  const { t } = useLanguage();
+  const { t, prefix } = useLanguage();
   const d = t.oneLiner;
 
   return (
@@ -18,47 +19,40 @@ export function OneLinerDemo() {
         whileInView={{ opacity: 1, y: 0 }}
         viewport={{ once: true, margin: "-80px" }}
         transition={{ duration: 0.5 }}
-        className="mx-auto mt-10 max-w-3xl overflow-hidden rounded-2xl border border-border/70 bg-[#0b0e16] shadow-2xl shadow-black/40"
+        className="mx-auto mt-10 max-w-5xl"
       >
-        <div className="flex items-center gap-2 border-b border-white/10 bg-white/[0.03] px-4 py-3">
-          <span className="h-3 w-3 rounded-full bg-[#ff5f56]" />
-          <span className="h-3 w-3 rounded-full bg-[#ffbd2e]" />
-          <span className="h-3 w-3 rounded-full bg-[#27c93f]" />
-          <span className="ml-3 font-mono text-xs text-white/40">ao compose --run</span>
-        </div>
+        <Link
+          to={prefix("/studio")}
+          className="group block overflow-hidden rounded-2xl border border-border/70 bg-card shadow-2xl shadow-black/10 transition hover:border-primary/40 hover:shadow-primary/10"
+        >
+          <div className="flex items-center gap-2 border-b border-border/70 bg-muted/60 px-4 py-3">
+            <span className="h-3 w-3 rounded-full bg-[#ff5f56]" />
+            <span className="h-3 w-3 rounded-full bg-[#ffbd2e]" />
+            <span className="h-3 w-3 rounded-full bg-[#27c93f]" />
+            <span className="ml-3 text-xs text-muted-foreground">ao.aiolaola.com/studio</span>
+          </div>
+          <img
+            src="/screenshots/studio-workflows.webp"
+            alt={d.imageAlt}
+            loading="lazy"
+            className="w-full transition duration-300 group-hover:scale-[1.01]"
+          />
+        </Link>
 
-        <div className="space-y-1 p-5 font-mono text-[13px] leading-relaxed">
-          <p className="text-white/60">
-            <span className="text-emerald-400">$</span> ao compose{" "}
-            <span className="text-amber-300">"{d.prompt}"</span> --run
+        <div className="mt-8 flex flex-col items-center gap-4">
+          <Link
+            to={prefix("/studio")}
+            className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition hover:opacity-90"
+          >
+            {d.cta}
+            <ArrowRight className="size-4" />
+          </Link>
+          <p className="text-center text-xs text-muted-foreground">
+            {d.cliHint}{" "}
+            <code className="rounded bg-muted px-1.5 py-0.5 font-mono">
+              ao compose "{d.prompt}" --run
+            </code>
           </p>
-          <p className="pt-2 text-white/40">
-            {d.meta.replace("{n}", String(d.steps.length))}
-          </p>
-          <p className="flex flex-wrap gap-x-3 gap-y-1 pb-2 text-white/70">
-            {d.roles.map((r) => (
-              <span key={r}>{r}</span>
-            ))}
-          </p>
-          <div className="my-2 h-px bg-white/10" />
-          {d.steps.map((s, i) => (
-            <motion.p
-              key={s.name}
-              initial={{ opacity: 0, x: -8 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.35, delay: 0.2 + i * 0.22 }}
-              className="flex items-baseline gap-2 text-white/85"
-            >
-              <Check className="size-3.5 shrink-0 translate-y-0.5 text-emerald-400" />
-              <span className="shrink-0">{s.emoji}</span>
-              <span className="shrink-0 font-semibold text-white">{s.name}</span>
-              <span className="shrink-0 text-white/40">{s.time}</span>
-              <span className="text-white/55">→ {s.out}</span>
-            </motion.p>
-          ))}
-          <div className="my-2 h-px bg-white/10" />
-          <p className="text-emerald-400/90">✓ {d.done}</p>
         </div>
       </motion.div>
     </section>

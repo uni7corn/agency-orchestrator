@@ -9,7 +9,8 @@ ao run <workflow.yaml> [options]      # Execute workflow
 ao run <workflow.yaml> --resume last --from <step-id>  # Re-run from a specific step
 ao validate <workflow.yaml>           # Validate without running
 ao plan <workflow.yaml>               # Show DAG execution plan
-ao roles                              # List all 216 available roles
+ao doctor [--fix]                     # Self-check provider/creds/CLI/system Claude Code; --fix repairs a hijacked ~/.claude (fake token / relay base_url)
+ao roles                              # List all 267 available roles
 ao install --tool claude-code         # Install bundled roles into a coding tool (claude-code/cursor/copilot/gemini-cli/qwen/opencode); --lang zh|en, --category, --dry-run
 ao run <workflow.yaml> --compare      # Run workflow + single-shot baseline + blind judge → side-by-side verdict (productized eval)
 ao team save <workflow.yaml>          # Save a role line-up as a reusable team (Loadout)
@@ -41,6 +42,16 @@ A "team" is a saved, named set of roles decoupled from any task — `src/cli/tea
 roles. Teams persist as `~/.ao/teams/*.team.yaml` (override dir with `AO_TEAMS_DIR`) and are
 **shared between the CLI and the web Studio** (`GET/POST/DELETE /api/teams` in `web/server.js`).
 Bring-your-own roles: `AO_AGENTS_DIR=/path` overrides the built-in catalog everywhere.
+
+## My Roles (user-built, additive)
+
+`~/.ao/roles/<id>.md` (override dir with `AO_USER_ROLES_DIR`) holds user-created roles — referenced
+as `my/<id>` in workflows. Unlike `AO_AGENTS_DIR` (which *replaces* the catalog), these are
+**merged on top** of the built-in library: `loadAgent` falls back to the user dir for `my/*`
+(`src/agents/loader.ts`), so run/compose/validate/`ao roles` all resolve them. Studio: "角色组队 →
+我的" tab has create/delete UI (`POST/DELETE /api/roles/my` in `web/server.js`); the Prompt
+Generator's system mode has "存为我的角色" to turn a generated system prompt into a role. Role
+favorites (☆常用, localStorage) mirror the workflow-card star.
 
 ## Resume — Iterative Optimization
 
@@ -104,6 +115,8 @@ steps:
   - id: step_id
     role: "category/role-name"       # from agency-agents-zh
     task: "Task with {{variables}}"
+    acceptance: "1. checkable condition…"  # optional: injected at prompt tail; output auto-verified against it after the step runs (fail → one auto-rework round); judge anchor in --compare
+    verify: false                    # optional: opt this step out of acceptance auto-verify (top-level `verify: false` disables whole workflow; CLI --verify/--no-verify overrides; default on)
     output: output_variable
     skill: "test-driven-development" # optional: inject a methodology playbook (see `ao skills`)
     depends_on: [other_step]         # DAG dependency
@@ -116,7 +129,7 @@ steps:
 
 ## Role Directory
 
-Roles are in `agency-agents-zh/` (or `node_modules/agency-agents-zh/`). Each role is a `.md` file with frontmatter + system prompt. Use `ao roles` to list all 216 roles.
+Roles are in `agency-agents-zh/` (or `node_modules/agency-agents-zh/`). Each role is a `.md` file with frontmatter + system prompt. Use `ao roles` to list all 267 roles.
 
 ## Project Structure
 

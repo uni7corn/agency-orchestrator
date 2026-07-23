@@ -26,6 +26,9 @@ function loadDir(dir) {
       out.push({
         name: String(doc.name),
         description: doc.description ? String(doc.description) : "",
+        // 类目/精选随 YAML 带出（如「一人公司」系列），演示站货架才能和本地一致地分组置顶
+        category: doc.category ? String(doc.category) : undefined,
+        featured: doc.featured === true ? true : undefined,
         steps: doc.steps
           .filter((s) => s && s.role)
           .map((s) => ({ id: String(s.id || ""), role: String(s.role), name: s.name ? String(s.name) : undefined, emoji: s.emoji ? String(s.emoji) : undefined })),

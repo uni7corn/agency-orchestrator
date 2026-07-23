@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Cpu, Loader2 } from "lucide-react";
+import { Check, ChevronDown, Cpu } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { api, API_PROVIDER_MAP, CLI_PROVIDER_IDS, DEFAULT_PROVIDER } from "@/lib/studio";
@@ -17,15 +17,23 @@ export function ModelSelect({ provider }: { provider: string }) {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [models, setModels] = useState<string[] | null>(null);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 远程清单下发的换代模型建议（providerOverrides）——比打包进前端的静态建议新
+  const [remoteSuggestions, setRemoteSuggestions] = useState<string[] | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   // 当前供应商已保存的模型（切换供应商时刷新）
   useEffect(() => {
     setModels(null);
+    setRemoteSuggestions(null);
     // model 为空 = 用引擎默认(按钮显示"默认模型"),不在前端猜具体默认值
-    api.config().then((c) => setCurrent(c.providers[eff]?.model || "")).catch(() => setCurrent(""));
+    api
+      .config()
+      .then((c) => {
+        setCurrent(c.providers[eff]?.model || "");
+        setRemoteSuggestions(c.providers[eff]?.modelSuggestions ?? null);
+      })
+      .catch(() => setCurrent(""));
   }, [eff]);
 
   useEffect(() => {
@@ -44,20 +52,16 @@ export function ModelSelect({ provider }: { provider: string }) {
 
   if (CLI_PROVIDER_IDS.has(eff)) return null;
 
-  const toggle = async () => {
+  const toggle = () => {
     const next = !open;
     setOpen(next);
-    if (next && models === null && !loading) {
-      setLoading(true);
-      try {
-        const r = await api.providerModels({ provider: eff });
-        // 拉取失败退回该供应商的静态模型建议,还没有就空列表(下拉里给提示)
-        setModels(r.ok && r.models?.length ? r.models : API_PROVIDER_MAP[eff]?.modelSuggestions ?? []);
-      } catch {
-        setModels(API_PROVIDER_MAP[eff]?.modelSuggestions ?? []);
-      } finally {
-        setLoading(false);
-      }
+    if (next && models === null) {
+      // 顶栏快切只给「精简推荐集 + 当前模型」——不倒整个目录:聚合商 /models 常有上百个,
+      // 还混着图像/视频/向量/TTS 等非对话模型(如 doubao-seedance、flux、bge),快切里没意义。
+      // 完整目录去配置页的「获取模型列表」按供应商挑。没配 model 时就是这份「最新推荐」。
+      const suggestions = remoteSuggestions ?? API_PROVIDER_MAP[eff]?.modelSuggestions ?? [];
+      // 当前已选但不在推荐集里的模型也带上,避免下拉里看不到自己正在用的那个。
+      setModels(current && !suggestions.includes(current) ? [current, ...suggestions] : suggestions);
     }
   };
 
@@ -87,11 +91,7 @@ export function ModelSelect({ provider }: { provider: string }) {
 
       {open && (
         <div className="absolute right-0 z-50 mt-1.5 max-h-[60vh] w-64 overflow-auto rounded-xl border border-border/70 bg-card p-1 shadow-xl">
-          {loading ? (
-            <div className="flex items-center gap-2 px-2.5 py-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" /> {p.modelsLoading}
-            </div>
-          ) : (models ?? []).length === 0 ? (
+          {(models ?? []).length === 0 ? (
             <div className="px-2.5 py-2 text-xs text-muted-foreground">{p.modelsEmpty}</div>
           ) : (
             (models ?? []).map((m) => (

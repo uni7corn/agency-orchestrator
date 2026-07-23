@@ -1,7 +1,8 @@
 import { BarChart3, Boxes, Download, History, KeyRound, Plug, TriangleAlert, Users } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import { ChatPanel, type ChatRole, type ChatSeed } from "@/components/studio/ChatPanel";
 import { ModelSelect } from "@/components/studio/ModelSelect";
 import { ProviderSelect } from "@/components/studio/ProviderSelect";
 import { ProvidersPanel } from "@/components/studio/ProvidersPanel";
@@ -21,7 +22,7 @@ import { cn } from "@/lib/utils";
 // recharts(~390kB)只在用量 tab 用 → 懒加载，避免拖累 Studio 首屏与演示模式
 const UsagePanel = lazy(() => import("@/components/studio/UsagePanel").then((m) => ({ default: m.UsagePanel })));
 
-// 需要 API key 的 provider，来自 lib/studio.ts 的统一注册表。apinebula 是当前默认 provider，
+// 需要 API key 的 provider，来自 lib/studio.ts 的统一注册表。duoyuanx 是当前默认 provider（进阶赞助商定制位），
 // 必须在列——否则新用户没填 key 时不会弹「需要配置 key」提示，直接运行才报认证错
 // （commit 61e84a6 改默认后遗漏）。新增 provider 只需改 API_PROVIDERS，这里自动跟上。
 const KEYED = API_PROVIDERS.map((p) => p.id);
@@ -39,7 +40,7 @@ const TAB_META: { id: Tab; icon: typeof Users }[] = [
 
 function StudioInner() {
   const { t, lang } = useLanguage();
-  const { status, version } = useBackend();
+  const { status, version, stale } = useBackend();
   // 防御：任一 tab 文案缺失也不要让整个 Studio 渲染崩溃（否则所有 tab 都点不动）
   const TABS = TAB_META.map((tb) => ({
     ...tb,
@@ -53,11 +54,15 @@ function StudioInner() {
   const [installOpen, setInstallOpen] = useState(false);
   const offline = status !== "online";
 
-  const setProvider = useCallback((p: string) => {
-    setActiveProvider(p);
-    setProviderState(p);
-  }, []);
-
+  // 对话（不组队）：普通对话与单角色对话共用一个面板。面板常驻挂载，open 开关；
+  // seed 是从任务输入框带来的首条消息；role 非空 = 带该角色人设聊
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatSeed, setChatSeed] = useState<ChatSeed | null>(null);
+  const [chatRole, setChatRole] = useState<ChatRole | null>(null);
+  const seedCounter = useRef(0);
+  // refreshConfig / setTab 必须定义在引用它们的回调（escalateToTeam 等）之前，否则
+  // 依赖数组 [setTab] 在渲染时求值会命中 TDZ（Cannot access 'setTab' before initialization），
+  // 整个 Studio 白屏。见下方 escalateToTeam 的 [setTab] 依赖。
   const refreshConfig = useCallback(() => {
     api
       .config()
@@ -69,11 +74,6 @@ function StudioInner() {
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (status === "online") refreshConfig();
-  }, [status, refreshConfig]);
-
   // Refresh key status whenever leaving the providers tab (so the warning clears).
   const setTab = useCallback(
     (t: Tab) => {
@@ -84,6 +84,27 @@ function StudioInner() {
     },
     [refreshConfig],
   );
+  const openPlainChat = useCallback((seedText?: string, role?: ChatRole) => {
+    setChatRole(role ?? null);
+    if (seedText) setChatSeed({ text: seedText, n: ++seedCounter.current });
+    setChatOpen(true);
+  }, []);
+  // 聊天 → 组队升级桥：关面板、切到角色页、把问题填进「AI 自动组队」输入框
+  const [taskSeed, setTaskSeed] = useState<{ text: string; n: number } | null>(null);
+  const escalateToTeam = useCallback((text: string) => {
+    setChatOpen(false);
+    setTaskSeed({ text, n: ++seedCounter.current });
+    setTab("roles");
+  }, [setTab]);
+
+  const setProvider = useCallback((p: string) => {
+    setActiveProvider(p);
+    setProviderState(p);
+  }, []);
+
+  useEffect(() => {
+    if (status === "online") refreshConfig();
+  }, [status, refreshConfig]);
 
   const effProvider = provider || DEFAULT_PROVIDER;
   const needKeyWarning = status === "online" && KEYED.includes(effProvider) && keyedHas[effProvider] === false;
@@ -94,7 +115,7 @@ function StudioInner() {
         <div className="sticky top-16 z-30 border-b border-border/60 bg-background/85 backdrop-blur-xl">
           <div className="container-page flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
             <span className="flex items-center gap-2 font-bold">
-              <span className="grid size-7 place-items-center rounded-lg bg-primary text-sm text-primary-foreground">ao</span>
+              <img src="/logo/ao-app-icon.svg" alt="AO" className="size-7" />
               {t.nav.studio}
             </span>
 
@@ -123,18 +144,23 @@ function StudioInner() {
 
             <div className="ml-auto flex items-center gap-2">
               <span
-                title={status === "online" ? `${t.studio.shell.engineOnline} v${version ?? ""}` : status === "offline" ? t.studio.shell.engineOffline : t.studio.shell.engineChecking}
+                title={
+                  status === "online" && stale ? t.studio.shell.engineStaleTitle
+                  : status === "online" ? `${t.studio.shell.engineOnline} v${version ?? ""}`
+                  : status === "offline" ? t.studio.shell.engineOffline
+                  : t.studio.shell.engineChecking
+                }
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-                  status === "online" && "bg-emerald-500/15 text-emerald-500",
-                  status === "offline" && "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+                  status === "online" && !stale && "bg-emerald-500/15 text-emerald-500",
+                  ((status === "online" && stale) || status === "offline") && "bg-amber-500/15 text-amber-600 dark:text-amber-400",
                   status === "checking" && "bg-muted text-muted-foreground",
                 )}
               >
-                <span className={cn("size-1.5 rounded-full", status === "online" ? "bg-emerald-500" : status === "offline" ? "bg-amber-500" : "bg-muted-foreground")} />
-                {status === "online" ? t.studio.shell.statusOnline : status === "offline" ? t.studio.shell.statusOffline : t.studio.shell.statusChecking}
+                <span className={cn("size-1.5 rounded-full", status === "online" && !stale ? "bg-emerald-500" : status === "checking" ? "bg-muted-foreground" : "bg-amber-500")} />
+                {status === "online" ? (stale ? t.studio.shell.statusStale : t.studio.shell.statusOnline) : status === "offline" ? t.studio.shell.statusOffline : t.studio.shell.statusChecking}
               </span>
-              <ProviderSelect value={provider} onChange={setProvider} />
+              <ProviderSelect value={provider} onChange={setProvider} onOpenProviders={() => setTab("providers")} />
               <ModelSelect provider={provider} />
               <Button size="sm" variant="outline" onClick={() => setTab("providers")}>
                 <KeyRound className="size-4" />
@@ -195,7 +221,7 @@ function StudioInner() {
               )}
             </>
           ) : tab === "roles" ? (
-            <RolesPicker provider={provider} onRun={start} onGoToWorkflows={() => setTab("workflows")} />
+            <RolesPicker provider={provider} onRun={start} onGoToWorkflows={() => setTab("workflows")} onPlainChat={openPlainChat} taskSeed={taskSeed} />
           ) : tab === "workflows" ? (
             <WorkflowsPanel provider={provider} onRun={start} />
           ) : tab === "runs" ? (
@@ -215,7 +241,9 @@ function StudioInner() {
           open(null);
           setTab("runs");
         }}
+        onGoProviders={() => setTab("providers")}
       />
+      <ChatPanel open={chatOpen} seed={chatSeed} role={chatRole} provider={effProvider} onClose={() => setChatOpen(false)} onEscalate={escalateToTeam} />
       <RunDock />
       {installOpen && <InstallPrompt onClose={() => setInstallOpen(false)} />}
       <SiteFooter />

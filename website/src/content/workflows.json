@@ -3,6 +3,8 @@
     {
       "name": "AI 一人公司：全员大会",
       "description": "你说一句话，9 个 AI 部门自动协作，2 分钟出完整商业方案——这就是一人公司",
+      "category": "一人公司",
+      "featured": true,
       "steps": [
         {
           "id": "ceo_kickoff",
@@ -195,6 +197,146 @@
           "role": "specialized/specialized-meeting-assistant",
           "name": "纪要主笔",
           "emoji": "📄"
+        }
+      ]
+    },
+    {
+      "name": "软件开发标准流程",
+      "description": "一句话需求 → 澄清 → 架构 → TDD 实现 → 代码审查 → 现实验收。标准化的多智能体软件开发流水线，配合 --materialize 把代码写成真实文件。",
+      "steps": [
+        {
+          "id": "clarify",
+          "role": "product/product-manager"
+        },
+        {
+          "id": "design",
+          "role": "engineering/engineering-software-architect"
+        },
+        {
+          "id": "implement",
+          "role": "engineering/engineering-senior-developer"
+        },
+        {
+          "id": "review",
+          "role": "engineering/engineering-code-reviewer"
+        },
+        {
+          "id": "verify",
+          "role": "testing/testing-reality-checker"
+        }
+      ]
+    },
+    {
+      "name": "一人公司·做产品",
+      "description": "你出想法，AI 团队出货：产品经理写 PRD、架构师定方案、工程师排计划，老板（你）拿到能直接开工的启动包",
+      "category": "一人公司",
+      "featured": true,
+      "steps": [
+        {
+          "id": "ceo_brief",
+          "role": "strategy/nexus-strategy",
+          "name": "老板",
+          "emoji": "👔"
+        },
+        {
+          "id": "prd",
+          "role": "product/product-manager",
+          "name": "产品经理",
+          "emoji": "🧭"
+        },
+        {
+          "id": "architecture",
+          "role": "engineering/engineering-backend-architect",
+          "name": "技术总监",
+          "emoji": "💻"
+        },
+        {
+          "id": "sprint_plan",
+          "role": "product/product-sprint-prioritizer",
+          "name": "项目主管",
+          "emoji": "📋"
+        },
+        {
+          "id": "launch_pack",
+          "role": "strategy/nexus-strategy",
+          "name": "老板",
+          "emoji": "👔"
+        }
+      ]
+    },
+    {
+      "name": "一人公司·做内容",
+      "description": "一个人做账号不孤军奋战：用户研究员找痛点、策划出选题、编导写脚本、运营排日历——你只管出镜",
+      "category": "一人公司",
+      "featured": true,
+      "steps": [
+        {
+          "id": "ceo_position",
+          "role": "strategy/nexus-strategy",
+          "name": "老板",
+          "emoji": "👔"
+        },
+        {
+          "id": "audience",
+          "role": "design/design-ux-researcher",
+          "name": "用户研究员",
+          "emoji": "🔍"
+        },
+        {
+          "id": "topics",
+          "role": "marketing/marketing-content-creator",
+          "name": "内容策划",
+          "emoji": "✏️"
+        },
+        {
+          "id": "script",
+          "role": "marketing/marketing-douyin-strategist",
+          "name": "编导",
+          "emoji": "🎬"
+        },
+        {
+          "id": "calendar",
+          "role": "marketing/marketing-social-media-strategist",
+          "name": "运营",
+          "emoji": "📆"
+        }
+      ]
+    },
+    {
+      "name": "一人公司·做投研",
+      "description": "像券商研究所一样做功课：宏观→行业→标的→风控四道工序，重大结论须你签字放行。仅供研究参考，不构成投资建议",
+      "category": "一人公司",
+      "featured": true,
+      "steps": [
+        {
+          "id": "macro",
+          "role": "finance/finance-financial-analyst",
+          "name": "宏观分析师",
+          "emoji": "🌍"
+        },
+        {
+          "id": "industry",
+          "role": "finance/finance-investment-researcher",
+          "name": "行业分析师",
+          "emoji": "🏭"
+        },
+        {
+          "id": "fundamentals",
+          "role": "finance/finance-financial-forecaster",
+          "name": "财务分析师",
+          "emoji": "📈"
+        },
+        {
+          "id": "risk",
+          "role": "finance/finance-fpa-analyst",
+          "name": "风控官",
+          "emoji": "🛡️"
+        },
+        {
+          "id": "final_report",
+          "role": "finance/finance-investment-researcher",
+          "name": "首席研究员",
+          "emoji": "🎓"
         }
       ]
     },
@@ -471,6 +613,28 @@
       ]
     },
     {
+      "name": "需求转项目脚手架",
+      "description": "一句话需求 → 澄清 → 计划 → 生成可落盘的项目脚手架。配合 ao run ... --materialize <目录> 把代码写成真实文件。",
+      "steps": [
+        {
+          "id": "clarify",
+          "role": "product/product-manager"
+        },
+        {
+          "id": "plan",
+          "role": "engineering/engineering-software-architect"
+        },
+        {
+          "id": "build",
+          "role": "engineering/engineering-rapid-prototyper"
+        },
+        {
+          "id": "verify",
+          "role": "engineering/engineering-code-reviewer"
+        }
+      ]
+    },
+    {
       "name": "学术论文选题与大纲",
       "description": "选题评估 + 研究方法设计 + 文献综述框架 + 完整大纲",
       "steps": [
@@ -549,6 +713,24 @@
           "role": "project-management/project-manager-senior",
           "name": "OKR 主笔",
           "emoji": "📄"
+        }
+      ]
+    },
+    {
+      "name": "省钱混用示例：便宜模型干轻活，强模型干重活",
+      "description": "演示 per-step 模型覆写（step.llm）——把简单步骤放到便宜/快的档位，把需要深度推理的步骤留给强模型，整体更省钱且不掉关键质量。抄这个模板即可。",
+      "steps": [
+        {
+          "id": "gather",
+          "role": "product/product-trend-researcher"
+        },
+        {
+          "id": "analyze",
+          "role": "academic/academic-narratologist"
+        },
+        {
+          "id": "format",
+          "role": "marketing/marketing-content-creator"
         }
       ]
     },

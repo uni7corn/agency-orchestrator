@@ -7,16 +7,18 @@
  * Not for production — single-user local tool for testing + demo recording.
  */
 import express from 'express';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { resolve, join, dirname, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import yaml from 'js-yaml';
 import { detectInstalledCliProviders } from '../dist/providers/detect.js';
 import { API_PROVIDERS, API_PROVIDER_MAP } from '../dist/connectors/api-providers.js';
 import { applyCodexRelay, clearCodexRelay, readCodexRelayStatus } from '../dist/utils/codex-relay.js';
+import { diagnoseClaudeConfig, repairClaudeConfig } from '../dist/utils/claude-repair.js';
 import { validateCustomProviderId, readCustomProviders, addCustomProvider, removeCustomProvider, updateCustomProvider } from '../dist/utils/custom-providers.js';
+import { rotatingSponsors } from '../dist/utils/sponsor-guide.js';
 
 // Codex 没有环境变量覆盖机制，中转配置写在 ~/.codex/config.toml + auth.json 里，
 // 用固定的内部 provider id（不管用户填的是哪家中转商），避免还要在 UI 里加个
@@ -44,8 +46,44 @@ const AGENTS_DIR = join(ROOT, 'node_modules', 'agency-agents-zh');
 const AGENTS_DIR_EN = join(ROOT, 'agency-agents');
 // 自定义角色目录（自带私有专家）：AO_AGENTS_DIR 存在时覆盖内置库，CLI 与 Studio 共用同一开关。
 const CUSTOM_AGENTS_DIR = process.env.AO_AGENTS_DIR ? resolve(process.env.AO_AGENTS_DIR) : '';
+// 用户自建角色目录（「我的」分类）：与内置库叠加而非替换，CLI（my/<id>）与 Studio 共用。
+// 与 ~/.ao/teams、~/.ao/prompts 同体系；引擎侧解析在 src/agents/loader.ts（userRolesDir）。
+const USER_ROLES_DIR = process.env.AO_USER_ROLES_DIR
+  ? resolve(process.env.AO_USER_ROLES_DIR)
+  : join(homedir(), '.ao', 'roles');
+// 官方多语言角色库（npm 包）。装了才出现在 Studio「角色库」下拉里；zh/en 内置必有。
+// 只认 node_modules（生产与开发一致），不做同级仓兜底——避免本地副本掩盖已发布包的问题。
+const LANG_LIBS = [
+  { id: 'pt-br', pkg: 'agency-agents-pt-br', label: 'Português (BR)' },
+  { id: 'ko', pkg: 'agency-agents-ko', label: '한국어' },
+  { id: 'ar', pkg: 'agency-agents-ar', label: 'العربية' },
+  { id: 'id', pkg: 'agency-agents-id', label: 'Bahasa Indonesia' },
+  { id: 'ru', pkg: 'agency-agents-ru', label: 'Русский' },
+];
+function langLibDir(id) {
+  const lib = LANG_LIBS.find(l => l.id === id);
+  if (!lib) return '';
+  const dir = join(ROOT, 'node_modules', lib.pkg);
+  return existsSync(dir) ? dir : '';
+}
+/** 归一化角色库语言：zh/en 或已安装的语言包 id；其余一律回落 zh。 */
+function normalizeRoleLang(lang) {
+  if (lang === 'en') return 'en';
+  if (typeof lang === 'string' && langLibDir(lang)) return lang;
+  return 'zh';
+}
+/** Studio「角色库」下拉的可选项（zh/en + 已安装语言包）。 */
+function installedRoleLibs() {
+  return [
+    { id: 'zh', label: '中文' },
+    { id: 'en', label: 'English' },
+    ...LANG_LIBS.filter(l => langLibDir(l.id)).map(l => ({ id: l.id, label: l.label })),
+  ];
+}
 function agentsDirFor(lang) {
   if (CUSTOM_AGENTS_DIR && existsSync(CUSTOM_AGENTS_DIR)) return CUSTOM_AGENTS_DIR;
+  const libDir = langLibDir(lang);
+  if (libDir) return libDir;
   if (lang === 'en' && existsSync(AGENTS_DIR_EN)) return AGENTS_DIR_EN;
   return existsSync(AGENTS_DIR) ? AGENTS_DIR : AGENTS_DIR_EN;
 }
@@ -76,7 +114,7 @@ const CLI_PROVIDERS = ['claude-code', 'gemini-cli', 'copilot-cli', 'codex-cli', 
 // per-provider overrides the user saved in the Studio (model name, custom base_url).
 // Already YAML-safe (no undefined fields) — used for compose, run args and run-role.
 function buildLLMConfig(provider) {
-  const p = provider || process.env.AO_PROVIDER || 'apinebula';
+  const p = provider || process.env.AO_PROVIDER || 'duoyuanx';
   const cfg = { provider: p, max_tokens: 4096 };
   if (CLI_PROVIDERS.includes(p)) return cfg; // local CLI: no model/key/base needed
   let saved = {};
@@ -84,9 +122,11 @@ function buildLLMConfig(provider) {
   // deepseek/openai/apinebula/agnes/rootflowai 等聚合 API 的默认模型统一在 api-providers.ts
   // 注册,新增一家不用改这里;claude 走原生 SDK,不在那张表里,单独判断;
   // 远程清单上架的赞助商(remoteProviderSpec)默认模型/端点来自清单。
+  // 模型换代时清单的 providerOverrides 优先于内置默认——改官网清单即可全网生效,不用发版。
   const remote = remoteProviderSpec(p);
-  const defModel = p === 'claude' ? 'claude-sonnet-4-20250514'
-    : API_PROVIDER_MAP[p]?.defaultModel || remote?.defaultModel; // ollama / custom: model must come from saved config
+  const override = providerOverrideSpec(p);
+  const defModel = override?.defaultModel
+    || (p === 'claude' ? 'claude-sonnet-5' : API_PROVIDER_MAP[p]?.defaultModel || remote?.defaultModel); // ollama / custom: model must come from saved config
   const model = saved.model || defModel;
   if (model) cfg.model = model;
   const defBase = p === 'ollama' ? (saved.baseUrl || process.env.OLLAMA_BASE_URL || 'http://localhost:11434') : remote?.baseUrl;
@@ -100,6 +140,18 @@ function buildLLMConfig(provider) {
 }
 const cleanLLMConfig = buildLLMConfig;
 const isAllowedWorkflow = (file) => ALLOWED_WORKFLOW_DIRS.some(d => isInside(file, d));
+
+// R2.2 首跑守卫：compose 要用的 provider 是否已有可用凭证（网页/桌面同后端）。保守——不确定不拦。
+function composeProviderReady(provider) {
+  const p = provider || process.env.AO_PROVIDER || 'duoyuanx';
+  let saved = {}; try { saved = readKeys()[p] || {}; } catch {}
+  if (saved.apiKey) return true;                                       // 已配 key（含 CLI 中转 / 自定义供应商）
+  if (CLI_PROVIDERS.includes(p)) return detectInstalledCliProviders().includes(p); // 订阅制 CLI 零配置
+  if (p === 'ollama') return true;                                     // 本地免 key
+  const cfg = KEY_ENV[p];
+  if (cfg?.key && process.env[cfg.key]) return true;                  // env 里有 key
+  return false;
+}
 
 // ── API key management (local-only) ──────────────────────────────────────────
 // Keys pasted in the Studio UI are stored in .local/ (gitignored) and injected
@@ -137,7 +189,7 @@ function readKeys() {
 // 安全约束:只接受 https 的 baseUrl,id 不能覆盖内置 provider(防清单被篡改后劫持内置流量)。
 const MANIFEST_URL = process.env.AO_MANIFEST_URL || 'https://ao.aiolaola.com/providers-manifest.json';
 const MANIFEST_TTL = 6 * 60 * 60 * 1000;
-const EMPTY_MANIFEST = { providers: [], relayPresets: [], removedProviders: [] };
+const EMPTY_MANIFEST = { providers: [], relayPresets: [], removedProviders: [], providerOverrides: {} };
 let manifestCache = { data: null, fetchedAt: 0 };
 async function getRemoteManifest() {
   const now = Date.now();
@@ -170,7 +222,22 @@ async function getRemoteManifest() {
         Object.values(r2.baseUrls).every((u) => typeof u === 'string' && /^https:\/\//.test(u))
       ).map((r2) => ({ name: r2.name, sponsor: !!r2.sponsor, signupUrl: httpsStr(r2.signupUrl), baseUrls: r2.baseUrls }));
       const removedProviders = (Array.isArray(j?.removedProviders) ? j.removedProviders : []).filter((x) => typeof x === 'string');
-      manifestCache = { data: { providers, relayPresets, removedProviders }, fetchedAt: now };
+      // providerOverrides：给「内置」provider 换代模型用（defaultModel/modelSuggestions），
+      // 改官网清单即可全网生效,不用发 npm/桌面版。只透传这两个字段,防清单塞进别的东西。
+      const providerOverrides = {};
+      if (j?.providerOverrides && typeof j.providerOverrides === 'object') {
+        for (const [id, ov] of Object.entries(j.providerOverrides)) {
+          if (!idRe.test(id) || !ov || typeof ov !== 'object') continue;
+          const entry = {};
+          if (typeof ov.defaultModel === 'string' && ov.defaultModel.trim()) entry.defaultModel = ov.defaultModel.trim();
+          if (Array.isArray(ov.modelSuggestions)) {
+            const ms = ov.modelSuggestions.filter((m) => typeof m === 'string' && m.trim());
+            if (ms.length) entry.modelSuggestions = ms;
+          }
+          if (Object.keys(entry).length) providerOverrides[id] = entry;
+        }
+      }
+      manifestCache = { data: { providers, relayPresets, removedProviders, providerOverrides }, fetchedAt: now };
       return manifestCache.data;
     }
   } catch { /* 网络失败/超时 → 走下面的短缓存空回退 */ }
@@ -182,17 +249,75 @@ async function getRemoteManifest() {
 function remoteProviderSpec(id) {
   return (manifestCache.data?.providers ?? []).find((p) => p.id === id);
 }
+function providerOverrideSpec(id) {
+  return manifestCache.data?.providerOverrides?.[id];
+}
+
+// ── models.dev 公开模型目录（cc-switch 同款数据源）──────────────────────────
+// https://models.dev —— 开源社区维护的全网大模型目录（api.json，免 key，持续更新）。
+// 用途：模型公司官方 API（claude/openai/deepseek）没配 key、或 /models 拉取失败时,
+// 用它兜底返回当前在售模型列表，避免用户看到打包时的过期静态建议。
+// 聚合商/中转商(apinebula/cubence 等)各家上架模型不同，models.dev 不知道，不适用。
+const MODELS_DEV_URL = process.env.AO_MODELS_DEV_URL || 'https://models.dev/api.json';
+const MODELS_DEV_TTL = 24 * 60 * 60 * 1000;
+// claude-code：中转商拉不到列表时退回 anthropic 官方目录（中转主要就是代理 Claude 系模型）
+const MODELS_DEV_VENDOR = { claude: 'anthropic', 'claude-code': 'anthropic', openai: 'openai', deepseek: 'deepseek' };
+let modelsDevCache = { data: null, fetchedAt: 0 };
+async function modelsDevList(provider) {
+  const vendor = MODELS_DEV_VENDOR[provider];
+  if (!vendor) return null;
+  const now = Date.now();
+  if (!modelsDevCache.data || now - modelsDevCache.fetchedAt > MODELS_DEV_TTL) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 5000);
+      const r = await fetch(MODELS_DEV_URL, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (r.ok) modelsDevCache = { data: await r.json(), fetchedAt: now };
+    } catch { /* 离线/被墙 → 用旧缓存或返回 null */ }
+    // 失败时短缓存 10 分钟，避免离线环境每次请求都白等 5s 超时
+    if (!modelsDevCache.data) { modelsDevCache.fetchedAt = now - MODELS_DEV_TTL + 10 * 60 * 1000; return null; }
+  }
+  const models = modelsDevCache.data?.[vendor]?.models;
+  if (!models || typeof models !== 'object') return null;
+  // 新模型在前（release_date 降序），上限 40 条防下拉过长
+  const list = Object.entries(models)
+    .map(([id, m]) => ({ id, date: typeof m?.release_date === 'string' ? m.release_date : '' }))
+    .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id))
+    .map((x) => x.id)
+    .slice(0, 40);
+  return list.length ? list : null;
+}
 getRemoteManifest(); // 启动预热,不阻塞
 function writeKeys(obj) {
   mkdirSync(dirname(KEYS_FILE), { recursive: true });
   writeFileSync(KEYS_FILE, JSON.stringify(obj, null, 2), 'utf-8');
 }
+// Claude Code 的模型映射 env（对齐 cc-switch 的成熟做法）：把 CLI 的 Sonnet/Opus/
+// Haiku 档位映射到中转商实际上架的模型名。只影响 AO spawn 出的 CLI 子进程。
+const CC_MODEL_ENVS = {
+  model: 'ANTHROPIC_MODEL',
+  sonnetModel: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  opusModel: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  haikuModel: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+};
 function applyKeys(obj) {
   for (const [provider, cfg] of Object.entries(KEY_ENV)) {
     const entry = obj[provider];
     if (!entry) continue;
     if (entry.apiKey) process.env[cfg.key] = entry.apiKey;
-    if (cfg.base && entry.baseUrl) process.env[cfg.base] = entry.baseUrl;
+    // CLI 中转（claude-code/gemini-cli）：base 必须和 token 成对注入。只存了
+    // baseUrl 没存 token 的半截配置若照样注入 base，CLI 会拿本机登录态去请求
+    // 中转端点 → 全线 401，把原本能用的 CLI 打挂。API 类 provider 不受此限
+    // （key 可能来自 shell 环境变量，base 单独覆盖是合法用法）。
+    const relayCli = provider === 'claude-code' || provider === 'gemini-cli';
+    const hasToken = !!(entry.apiKey || process.env[cfg.key]);
+    if (cfg.base && entry.baseUrl && (!relayCli || hasToken)) process.env[cfg.base] = entry.baseUrl;
+  }
+  for (const [field, envName] of Object.entries(CC_MODEL_ENVS)) {
+    const v = obj['claude-code']?.[field];
+    if (v) process.env[envName] = v;
+    else delete process.env[envName];
   }
   if (obj.ollama?.baseUrl) process.env.OLLAMA_BASE_URL = obj.ollama.baseUrl;
 }
@@ -219,7 +344,7 @@ function getRoleMeta(role) {
       const raw = readFileSync(filePath, 'utf-8');
       const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
       if (fmMatch) {
-        const fm = yaml.load(fmMatch[1]);
+        const fm = parseFrontmatter(fmMatch[1]);
         const meta = { name: fm.name || null, description: fm.description || '', color: fm.color || '#888' };
         roleMetaCache.set(role, meta);
         return meta;
@@ -261,7 +386,7 @@ const WF_FEATURED = new Set([
   '软件开发标准流程.yaml', 'codex-cc-loop.yaml', 'content-pipeline.yaml', 'product-review.yaml', 'meeting-notes.yaml',
 ]);
 
-function loadWorkflowMeta(dir, tagPrivate = false) {
+function loadWorkflowMeta(dir, tagPrivate = false, deletable = false) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
@@ -309,6 +434,10 @@ function loadWorkflowMeta(dir, tagPrivate = false) {
           }),
           provider: doc?.llm?.provider,
           private: tagPrivate,
+          // 「我的工作流」按创建/修改时间倒序展示（#92：列表顺序不可预期）
+          mtime: statSync(full).mtimeMs,
+          // 仅 COMPOSED_DIR（自动组队/画布保存的）可删；内置模板与外部用户目录不可删
+          deletable,
         };
       } catch {
         return null;
@@ -324,9 +453,22 @@ app.get('/api/workflows', (req, res) => {
   const all = [
     ...loadWorkflowMeta(builtinDir, false),
     ...(USER_WORKFLOWS_DIR ? loadWorkflowMeta(USER_WORKFLOWS_DIR, true) : []),
-    ...(existsSync(COMPOSED_DIR) ? loadWorkflowMeta(COMPOSED_DIR, true) : []),
+    ...(existsSync(COMPOSED_DIR) ? loadWorkflowMeta(COMPOSED_DIR, true, true) : []),
   ];
   res.json(all);
+});
+
+// ── Delete a user workflow (#92) ──
+// 只允许删 COMPOSED_DIR 里的（自动组队/画布保存的）；内置模板和 AO_USER_WORKFLOWS_DIR
+// （外部自管目录，可能是用户的 git 仓库）一律 403，不做例外。
+app.delete('/api/workflows', (req, res) => {
+  const file = req.query.file;
+  if (!file || typeof file !== 'string') return res.status(400).json({ error: 'invalid file' });
+  const resolved = resolve(file);
+  if (!isInside(resolved, COMPOSED_DIR)) return res.status(403).json({ error: 'only user-composed workflows can be deleted' });
+  if (!existsSync(resolved)) return res.status(404).json({ error: 'file not found' });
+  unlinkSync(resolved);
+  res.json({ ok: true });
 });
 
 // ── History: list past runs ──
@@ -443,7 +585,14 @@ app.post('/api/run', (req, res) => {
     if (llm.api_key) args.push('--api-key', llm.api_key);
   }
   if (resume) {
-    args.push('--resume', resume === true ? 'last' : resume);
+    let resumeArg = resume === true ? 'last' : String(resume);
+    // 历史面板传的是 run 目录名（ao-output/ 下），而 CLI 的 --resume 按 cwd 解析相对
+    // 路径——补全成绝对路径，否则会指到 DATA_DIR/<id> 找不到 metadata.json。
+    if (resumeArg !== 'last') {
+      const candidate = join(OUTPUT_DIR, resumeArg);
+      if (existsSync(join(candidate, 'metadata.json'))) resumeArg = candidate;
+    }
+    args.push('--resume', resumeArg);
     if (fromStep) args.push('--from', fromStep);
   }
   // 对话式返工：把某一步的修改意见交回给该专家在原稿基础上重做。
@@ -470,10 +619,15 @@ app.post('/api/run', (req, res) => {
   // Parse CLI output into structured events
   let lineBuffer = '';
   let currentStepId = null;
+  // 验收未过时，"完成 | … | 验收 ⚠️" 行之后紧跟若干 "⚠️ 未满足条目" 行——
+  // 它们是核验详情而非步骤产出，转成 step-verify-item 事件，别混进正文。
+  let inVerifyItems = false;
 
   function parseLine(raw) {
     const clean = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '').trim();
-    if (!clean) return;
+    // ⚠️ 条目紧贴"完成 | … | 验收 ⚠️"行连续打印，首个空行即正文分界——
+    // 空行必须关闭 verify-item 窗口，否则正文里以 ⚠️ 开头的行会被误吞成核验条目
+    if (!clean) { inVerifyItems = false; return; }
 
     // human_input / approval 节点暂停等待输入：引擎在 AO_WEB_INPUT 模式下发的机器标记。
     // 转成 await-input 事件，前端弹框，用户输入经 POST /api/run-input 写回子进程 stdin。
@@ -505,9 +659,17 @@ app.post('/api/run', (req, res) => {
     // currentStepId set here — clearing it would drop the whole step body.
     const metaMatch = clean.match(/^完成\s*\|\s*(.+)/);
     if (metaMatch && currentStepId) {
+      inVerifyItems = /验收\s*⚠️/.test(metaMatch[1]);
       send('step-done', { id: currentStepId, meta: metaMatch[1] });
       return;
     }
+
+    // Verification detail lines right after a "完成 | … | 验收 ⚠️" line
+    if (inVerifyItems && currentStepId && /^⚠️\s*/.test(clean)) {
+      send('step-verify-item', { id: currentStepId, text: clean.replace(/^⚠️\s*/, '') });
+      return;
+    }
+    inVerifyItems = false;
 
     // Workflow summary: "完成: 5/5 步 | ..." — end of all step output.
     if (/完成:\s*\d+\/\d+\s*步/.test(clean)) {
@@ -623,6 +785,7 @@ app.post('/api/compare', async (req, res) => {
 // ── Roles / Agents ──
 const CATEGORY_NAMES = {
   zh: {
+    my: '我的',
     marketing: '市场营销', 'paid-media': '付费媒体', sales: '销售', product: '产品',
     'project-management': '项目管理', testing: '质量测试', support: '运营支持',
     'spatial-computing': '空间计算', specialized: '专业服务', 'game-development': '游戏开发',
@@ -630,6 +793,7 @@ const CATEGORY_NAMES = {
     hr: '人力资源', legal: '法务', strategy: '战略', 'supply-chain': '供应链',
   },
   en: {
+    my: 'My Roles',
     marketing: 'Marketing', 'paid-media': 'Paid Media', sales: 'Sales', product: 'Product',
     'project-management': 'Project Management', testing: 'Testing', support: 'Support',
     'spatial-computing': 'Spatial Computing', specialized: 'Specialized', 'game-development': 'Game Dev',
@@ -638,71 +802,214 @@ const CATEGORY_NAMES = {
   },
 };
 
+// frontmatter 解析:先严格 YAML;失败(翻译文本裸冒号等)退回引擎同款的逐行宽松解析,
+// 保证角色不因个别字段格式问题从 Studio 列表消失(引擎 src/agents/loader.ts 本就宽松)。
+function parseFrontmatter(block) {
+  try {
+    const fm = yaml.load(block);
+    if (fm && typeof fm === 'object') return fm;
+  } catch { /* fall through */ }
+  const fm = {};
+  for (const line of String(block).split('\n')) {
+    const i = line.indexOf(':');
+    if (i > 0) fm[line.slice(0, i).trim()] = line.slice(i + 1).trim().replace(/^["']|["']$/g, '');
+  }
+  return fm;
+}
+
 function loadRoles(lang) {
   const agentsDir = agentsDirFor(lang);
-  if (!existsSync(agentsDir)) return [];
-
-  const categoryNames = CATEGORY_NAMES[lang === 'en' ? 'en' : 'zh'];
+  // 分类显示名：zh 用中文，en 及各语言包用英文（语言包目录名就是英文部门名）
+  const categoryNames = CATEGORY_NAMES[lang === 'zh' ? 'zh' : 'en'];
 
   const roles = [];
-  for (const cat of readdirSync(agentsDir)) {
-    const catDir = join(agentsDir, cat);
-    try { if (!statSync(catDir).isDirectory()) continue; } catch { continue; }
-    const files = readdirSync(catDir).filter(f => f.endsWith('.md'));
-    for (const f of files) {
+  // 用户自建角色（~/.ao/roles）排最前，归「我的」分类；custom 标记供前端渲染删除入口。
+  // 中英文站都展示——用户自己的专家不分语言库。
+  if (existsSync(USER_ROLES_DIR)) {
+    for (const f of readdirSync(USER_ROLES_DIR).filter(n => n.endsWith('.md'))) {
       try {
-        const raw = readFileSync(join(catDir, f), 'utf-8');
+        const raw = readFileSync(join(USER_ROLES_DIR, f), 'utf-8');
         const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
         if (!fmMatch) continue;
-        const fm = yaml.load(fmMatch[1]);
+        const fm = parseFrontmatter(fmMatch[1]);
+        if (!fm || !fm.name) continue;
         roles.push({
           id: f.replace('.md', ''),
-          category: cat,
-          categoryName: categoryNames[cat] || cat,
-          name: fm.name || f.replace('.md', ''),
+          category: 'my',
+          categoryName: categoryNames.my,
+          name: fm.name,
           description: fm.description || '',
           color: fm.color || '#888',
+          custom: true,
         });
       } catch {}
     }
+  }
+
+  if (!existsSync(agentsDir)) return roles;
+  // 分类目录内递归（含 game-development/unity/* 等嵌套角色，id 带子路径）——
+  // 与引擎 listAgents / 官网画廊同口径，此前只收一层导致 Studio 比 CLI 少一截角色。
+  const SKIP_DIRS = new Set(['node_modules', 'scripts', 'integrations', 'examples']);
+  for (const cat of readdirSync(agentsDir)) {
+    if (cat.startsWith('.') || SKIP_DIRS.has(cat)) continue;
+    const catDir = join(agentsDir, cat);
+    try { if (!statSync(catDir).isDirectory()) continue; } catch { continue; }
+    const walk = (dir, relDir) => {
+      for (const f of readdirSync(dir)) {
+        if (f.startsWith('.') || SKIP_DIRS.has(f)) continue;
+        const full = join(dir, f);
+        let isDir = false;
+        try { isDir = statSync(full).isDirectory(); } catch { continue; }
+        if (isDir) { walk(full, relDir ? `${relDir}/${f}` : f); continue; }
+        if (!f.endsWith('.md')) continue;
+        try {
+          const raw = readFileSync(full, 'utf-8');
+          const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
+          if (!fmMatch) continue;
+          const fm = parseFrontmatter(fmMatch[1]);
+          if (!fm.name) continue;
+          const base = f.replace('.md', '');
+          roles.push({
+            id: relDir ? `${relDir}/${base}` : base,
+            category: cat,
+            categoryName: categoryNames[cat] || cat,
+            name: fm.name,
+            description: fm.description || '',
+            color: fm.color || '#888',
+          });
+        } catch {}
+      }
+    };
+    walk(catDir, '');
   }
   return roles;
 }
 
 const rolesCache = {};
 app.get('/api/roles', (req, res) => {
-  const lang = req.query.lang === 'en' ? 'en' : 'zh';
+  const lang = normalizeRoleLang(req.query.lang);
   if (!rolesCache[lang]) rolesCache[lang] = loadRoles(lang);
   res.json(rolesCache[lang]);
 });
 
 app.get('/api/roles/:category/:id', (req, res) => {
-  const agentsDir = agentsDirFor(req.query.lang === 'en' ? 'en' : 'zh');
-  const filePath = join(agentsDir, req.params.category, req.params.id + '.md');
-  if (!isInside(filePath, agentsDir) || !existsSync(filePath)) return res.status(404).json({ error: 'not found' });
+  // 「我的」分类走用户角色目录（平铺，无子目录）
+  const isMy = req.params.category === 'my';
+  const baseDir = isMy ? USER_ROLES_DIR : agentsDirFor(normalizeRoleLang(req.query.lang));
+  const filePath = isMy ? join(baseDir, req.params.id + '.md') : join(baseDir, req.params.category, req.params.id + '.md');
+  if (!isInside(filePath, baseDir) || !existsSync(filePath)) return res.status(404).json({ error: 'not found' });
   const raw = readFileSync(filePath, 'utf-8');
   const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
-  const fm = fmMatch ? yaml.load(fmMatch[1]) : {};
+  const fm = fmMatch ? parseFrontmatter(fmMatch[1]) : {};
   const body = fmMatch ? raw.slice(fmMatch[0].length).trim() : raw;
   res.json({ id: req.params.id, category: req.params.category, name: fm.name || req.params.id, description: fm.description || '', color: fm.color || '#888', content: body });
 });
 
+// ── 我的角色（用户自建，~/.ao/roles）：创建 / 删除。列表走 /api/roles 的「我的」分类 ──
+// id 只允许 [a-z0-9-]（引擎 loadAgent 的路径白名单是 ASCII）；中文名自动落到 custom-role-N。
+function slugifyRoleId(name) {
+  const base = String(name || '').toLowerCase().trim()
+    .replace(/[^a-z0-9-\s_]/g, '').replace(/[\s_]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+  return base.slice(0, 48);
+}
+app.post('/api/roles/my', (req, res) => {
+  const { name, description, systemPrompt, color, emoji } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'name required' });
+  if (!systemPrompt || !String(systemPrompt).trim()) return res.status(400).json({ error: 'systemPrompt required' });
+  mkdirSync(USER_ROLES_DIR, { recursive: true });
+  let id = slugifyRoleId(name);
+  if (!id) {
+    let n = 1;
+    while (existsSync(join(USER_ROLES_DIR, `custom-role-${n}.md`))) n++;
+    id = `custom-role-${n}`;
+  } else if (existsSync(join(USER_ROLES_DIR, `${id}.md`))) {
+    let n = 2;
+    while (existsSync(join(USER_ROLES_DIR, `${id}-${n}.md`))) n++;
+    id = `${id}-${n}`;
+  }
+  const filePath = join(USER_ROLES_DIR, `${id}.md`);
+  if (!isInside(filePath, USER_ROLES_DIR)) return res.status(400).json({ error: 'bad name' });
+  const fm = { name: String(name).trim() };
+  if (description && String(description).trim()) fm.description = String(description).trim();
+  if (emoji && String(emoji).trim()) fm.emoji = String(emoji).trim();
+  fm.color = (color && /^#[0-9a-fA-F]{3,8}$/.test(String(color))) ? String(color) : '#7c6cf0';
+  const content = `---\n${yaml.dump(fm).trimEnd()}\n---\n\n${String(systemPrompt).trim()}\n`;
+  writeFileSync(filePath, content, 'utf-8');
+  delete rolesCache.zh; delete rolesCache.en;
+  res.json({ id, role: `my/${id}`, name: fm.name });
+});
+// 编辑自建角色:字段级合并(没传的不动),id 不变
+app.put('/api/roles/my/:id', (req, res) => {
+  const filePath = join(USER_ROLES_DIR, req.params.id + '.md');
+  if (!isInside(filePath, USER_ROLES_DIR)) return res.status(403).json({ error: 'forbidden' });
+  if (!existsSync(filePath)) return res.status(404).json({ error: 'not found' });
+  const raw = readFileSync(filePath, 'utf-8');
+  const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
+  const fm = fmMatch ? parseFrontmatter(fmMatch[1]) : {};
+  const body = fmMatch ? raw.slice(fmMatch[0].length).trim() : raw.trim();
+  const { name, description, systemPrompt, color, emoji } = req.body || {};
+  const next = {
+    name: (name && String(name).trim()) || fm.name || req.params.id,
+    ...( (description !== undefined ? String(description).trim() : fm.description) ? { description: description !== undefined ? String(description).trim() : fm.description } : {} ),
+    ...( (emoji !== undefined ? String(emoji).trim() : fm.emoji) ? { emoji: emoji !== undefined ? String(emoji).trim() : fm.emoji } : {} ),
+    color: (color && /^#[0-9a-fA-F]{3,8}$/.test(String(color))) ? String(color) : (fm.color || '#7c6cf0'),
+  };
+  const nextBody = (systemPrompt !== undefined && String(systemPrompt).trim()) ? String(systemPrompt).trim() : body;
+  writeFileSync(filePath, `---\n${yaml.dump(next).trimEnd()}\n---\n\n${nextBody}\n`, 'utf-8');
+  delete rolesCache.zh; delete rolesCache.en;
+  res.json({ id: req.params.id, role: `my/${req.params.id}`, name: next.name });
+});
+app.delete('/api/roles/my/:id', (req, res) => {
+  const filePath = join(USER_ROLES_DIR, req.params.id + '.md');
+  // 严格限定用户角色目录，内置库一律 403（与 /api/workflows 删除守卫同规）
+  if (!isInside(filePath, USER_ROLES_DIR)) return res.status(403).json({ error: 'forbidden' });
+  if (!existsSync(filePath)) return res.status(404).json({ error: 'not found' });
+  unlinkSync(filePath);
+  delete rolesCache.zh; delete rolesCache.en;
+  res.json({ ok: true });
+});
+
 // ── Run single role ──
 app.post('/api/run-role', (req, res) => {
-  const { role, task, provider, lang } = req.body || {};
+  const { role, task, provider, lang, roleLang } = req.body || {};
   if (!role || !task) return res.status(400).json({ error: 'role and task required' });
 
-  // Build a temp single-step workflow. Top-level llm is required; keyed providers
+  // Build a single-step workflow. Top-level llm is required; keyed providers
   // (deepseek/openai/claude) also require a model — buildLLMConfig fills it.
+  // api_key 绝不写进 yaml（文件会持久化到用户目录、可被下载/分享）——注册 provider
+  // 的 key 启动时已注入 process.env,自定义供应商的 key 走 --api-key CLI 参数。
+  const { api_key: consultKey, ...llmSafe } = cleanLLMConfig(provider);
+  const roleShort = String(role).split('/').pop();
+  // 卡片/历史标题用角色显示名（中文站「人类学家」而非英文 slug），来自角色 frontmatter
+  const langKey = lang === 'en' ? 'en' : 'zh';
+  // 角色库语言(roleLang)决定从哪套库解析角色;界面语言(langKey)只影响命名措辞
+  const roleLib = normalizeRoleLang(roleLang || langKey);
+  if (!rolesCache[roleLib]) rolesCache[roleLib] = loadRoles(roleLib);
+  const roleName = rolesCache[roleLib].find(r => `${r.category}/${r.id}` === String(role))?.name
+    || rolesCache[roleLib].find(r => r.id === roleShort)?.name || roleShort;
   const wfDoc = {
-    name: `专家咨询: ${role.split('/').pop()}`,
-    agents_dir: agentsDirFor(lang === 'en' ? 'en' : 'zh'),
-    llm: cleanLLMConfig(provider),
+    name: langKey === 'en' ? `Expert consult: ${roleName}` : `专家咨询: ${roleName}`,
+    description: String(task).slice(0, 140),
+    agents_dir: agentsDirFor(roleLib),
+    llm: llmSafe,
     steps: [{ id: 'consult', role, task, output: 'result' }],
   };
 
-  const tmpFile = join(tmpdir(), `ao-role-${Date.now()}.yaml`);
-  writeFileSync(tmpFile, yaml.dump(wfDoc, { lineWidth: -1 }), 'utf-8');
+  // 持久化到「我的工作流」(COMPOSED_DIR):历史记录可重跑,列表里可再运行/删除。
+  // 文件名保留角色 slug（稳定、无歧义）。同角色**同问题**重复咨询直接复用已有文件
+  // （重复运行不该堆出 -2/-3 卡片）;问题不同才按 compose 的 dedupe 规则另存。
+  mkdirSync(COMPOSED_DIR, { recursive: true });
+  const consultSafe = `${langKey === 'en' ? 'expert-consult' : '专家咨询'}-${roleShort}`.replace(/[^\w.一-龥-]+/g, '-');
+  const consultYaml = yaml.dump(wfDoc, { lineWidth: -1 });
+  let consultFile = join(COMPOSED_DIR, `${consultSafe}.yaml`);
+  let consultSeq = 2;
+  while (existsSync(consultFile)) {
+    let same = false;
+    try { same = readFileSync(consultFile, 'utf-8') === consultYaml; } catch {}
+    if (same) break;
+    consultFile = join(COMPOSED_DIR, `${consultSafe}-${consultSeq}.yaml`); consultSeq++;
+  }
+  writeFileSync(consultFile, consultYaml, 'utf-8');
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -711,12 +1018,16 @@ app.post('/api/run-role', (req, res) => {
 
   const send = (type, data) => { if (res.writableEnded) return; res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`); };
 
-  // Don't pass --provider here: the temp workflow already bakes a full llm block
+  // Don't pass --provider here: the saved workflow already bakes a full llm block
   // (provider + model). A bare --provider override would drop the model and the
   // API call would 400 with "missing field model".
-  const args = [CLI, 'run', tmpFile];
+  // 自定义供应商的 key 不在 env 也不进 yaml,单独经 CLI 参数传给引擎。
+  const args = [CLI, 'run', consultFile];
+  if (consultKey) args.push('--api-key', consultKey);
 
   send('start', { cmd: `ao run (${role})`, task });
+  // 告知前端本次咨询已落盘为可复用工作流（未知事件前端安全忽略）
+  send('workflow-saved', { file: consultFile });
 
   let lineBuffer = '';
   let collecting = false;
@@ -750,7 +1061,7 @@ app.post('/api/run-role', (req, res) => {
   }
 
   console.log('[run-role]', role, task.slice(0, 60));
-  // AO_NO_RESUME_HINT=1 → 单角色一次性运行(临时工作流跑完即删),不打印失效的 --resume 提示
+  // AO_NO_RESUME_HINT=1 → 单角色咨询是一次性问答,终端的 --resume 提示对网页用户是噪音
   const child = spawn(NODE_BIN, args, { cwd: DATA_DIR, env: { ...process.env, FORCE_COLOR: '0', AO_NO_AT_FILE: '1', AO_NO_RESUME_HINT: '1' } });
 
   child.stdout.on('data', chunk => {
@@ -761,23 +1072,90 @@ app.post('/api/run-role', (req, res) => {
     while ((idx = lineBuffer.indexOf('\n')) >= 0) { parseLine(lineBuffer.slice(0, idx)); lineBuffer = lineBuffer.slice(idx + 1); }
   });
   child.stderr.on('data', chunk => send('stderr', { text: chunk.toString() }));
+  // 工作流文件已持久化在 COMPOSED_DIR（「我的工作流」），任何退出路径都不再删除。
   child.on('exit', (code, signal) => {
     if (lineBuffer.trim()) parseLine(lineBuffer);
     send('done', { code, signal, content });
     res.end();
-    try { unlinkSync(tmpFile); } catch {}
   });
-  child.on('error', err => { send('error', { message: err.message }); res.end(); try { unlinkSync(tmpFile); } catch {} });
+  child.on('error', err => { send('error', { message: err.message }); res.end(); });
 
   let finished = false;
   child.on('exit', () => { finished = true; });
-  res.on('close', () => { if (!finished && !child.killed) { child.kill('SIGTERM'); try { unlinkSync(tmpFile); } catch {} } });
+  res.on('close', () => { if (!finished && !child.killed) child.kill('SIGTERM'); });
+});
+
+// ── 对话（不组队）────────────────────────────────────────────────────────
+// 统一的聊天入口：不建团队、不写临时工作流、不产生 ao-output 运行记录——直接用
+// 当前 provider 的 connector 调一轮。可选 role（如 "engineering/engineering-sre"）
+// = 带该角色人设的多轮对话（取代原先一次性的「单独对话」运行）；不带 role = 素模型。
+// connector 接口是单轮的 (system, user)，多轮上下文由前端带来的 messages 在这里
+// 折叠进 userMessage。
+app.post('/api/chat', async (req, res) => {
+  const { messages, provider, lang, role, roleLang } = req.body || {};
+  if (!Array.isArray(messages) || messages.length === 0) return res.status(400).json({ error: 'messages required' });
+  // 只带最近 20 条、每条截 8k 字符——闲聊场景防历史无限增长撑爆上下文
+  const clean = messages
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim())
+    .slice(-20)
+    .map((m) => ({ role: m.role, content: String(m.content).slice(0, 8000) }));
+  const last = clean[clean.length - 1];
+  if (!last || last.role !== 'user') return res.status(400).json({ error: 'last message must be from user' });
+
+  const en = lang === 'en';
+  let system = en
+    ? 'You are a friendly, knowledgeable AI assistant. Answer directly and concisely — no team building, no role-play. Reply in the language the user writes in.'
+    : '你是一位友好、靠谱的 AI 助手。直接、简洁地回答用户，不需要组建团队或扮演特定角色。用用户使用的语言回复。';
+  if (role && typeof role === 'string') {
+    // my/ 自建角色走用户角色目录(平铺);其余按角色库语言(roleLang 优先于站点语言)解析
+    const isMy = role.startsWith('my/');
+    const agentsDir = isMy ? USER_ROLES_DIR : agentsDirFor(normalizeRoleLang(roleLang || (en ? 'en' : 'zh')));
+    const filePath = isMy ? join(agentsDir, role.slice(3) + '.md') : join(agentsDir, role + '.md');
+    if (!isInside(filePath, agentsDir) || !existsSync(filePath)) return res.status(400).json({ error: `unknown role: ${role}` });
+    const raw = readFileSync(filePath, 'utf-8');
+    const fmMatch = raw.match(/^---\n([\s\S]*?)\n---/);
+    const body = (fmMatch ? raw.slice(fmMatch[0].length) : raw).trim();
+    // 角色提示词是按"产出一份完整交付物"写的，聊天场景补一句对话姿态，避免每轮都甩全套报告
+    system = body + (en
+      ? '\n\n---\nNote: this is a live multi-turn conversation. Reply in character, directly and concisely — no need to produce a full formatted report each turn.'
+      : '\n\n---\n注意：当前是与用户的实时多轮对话。请以上述角色身份直接、简洁地回复，不必每轮都输出完整报告格式。');
+  }
+  const prior = clean.slice(0, -1);
+  const userLabel = en ? 'User' : '用户';
+  const aiLabel = en ? 'Assistant' : '助手';
+  const userMessage = prior.length
+    ? `${en ? 'Earlier conversation:' : '这是此前的对话记录：'}\n\n${prior.map((m) => `${m.role === 'user' ? userLabel : aiLabel}: ${m.content}`).join('\n\n')}\n\n${en ? 'New message:' : '用户的新消息：'}\n${last.content}`
+    : last.content;
+
+  try {
+    const llm = buildLLMConfig(provider);
+    const { createConnector } = await import('../dist/connectors/factory.js');
+    const connector = createConnector(llm);
+    console.log('[chat]', llm.provider, role || '(plain)', last.content.slice(0, 60));
+    const result = await connector.chat(system, userMessage, llm);
+    res.json({ content: result.content, usage: result.usage });
+  } catch (e) {
+    res.status(500).json({ error: e?.message || String(e) });
+  }
 });
 
 // ── Compose a workflow from picked roles (LLM orchestrates the chosen cast) ──
 app.post('/api/compose', async (req, res) => {
-  const { description, roles, name, provider, lang } = req.body || {};
+  const { description, roles, name, provider, lang, budget, roleLang } = req.body || {};
   if (!description || typeof description !== 'string') return res.status(400).json({ error: 'description required' });
+  // R2.2 首跑引导：无可用凭证时，返回结构化引导（前端渲染三选一），而不是让底层连接器抛晦涩错。
+  if (!composeProviderReady(provider)) {
+    return res.status(400).json({
+      code: 'no_credentials',
+      error: 'no_credentials',
+      provider: provider || process.env.AO_PROVIDER || 'duoyuanx',
+      installedCli: detectInstalledCliProviders(),
+      // 赞助商位规则（src/utils/sponsor-guide.ts）：进阶档（多元探索）持有默认
+      // provider 位（上面的 provider 字段兜底就是它），不占横幅；横幅 = 其余
+      // 6 家（旗舰+标准）按天轮换 2 家，等份轮值
+      sponsors: rotatingSponsors(),
+    });
+  }
   // roles 可为空 = AI 自动组队：让 LLM 从全量角色目录里自己挑专家（对应 CLI `ao compose "一句话"`，
   // 不传 --roles）。传了 roles = 锁定阵容（手动组队 / 套用已存团队）。
   const pinnedRoles = Array.isArray(roles) ? roles.map(String) : [];
@@ -786,9 +1164,14 @@ app.post('/api/compose', async (req, res) => {
     const { composeWorkflow } = await import('../dist/cli/compose.js');
     const trimmedName = name && String(name).trim() ? String(name).trim() : undefined;
     const composeLang = lang === 'en' ? 'en' : 'zh';
+    // 角色库语言(roleLang)与提示词语言(composeLang)解耦:选了语言包则从该包组队,
+    // 生成的 YAML agents_dir 写包名,findAgentsDir 会在 node_modules 里解析到它
+    const roleLib = normalizeRoleLang(roleLang || composeLang);
+    const roleLibPkg = LANG_LIBS.find(l => l.id === roleLib)?.pkg;
     const result = await composeWorkflow({
       description,
-      agentsDir: agentsDirFor(composeLang),
+      agentsDir: agentsDirFor(roleLib),
+      agentsDirName: roleLibPkg,
       llmConfig: buildLLMConfig(provider),
       pinnedRoles,
       outputName: trimmedName,
@@ -797,6 +1180,8 @@ app.post('/api/compose', async (req, res) => {
       // Studio「组队 → 直接跑」= compose --run 语义：不生成必填 inputs，把描述嵌进 task，
       // 否则生成的工作流带 required input、直接运行会报「请用 -i 传入」缺参数错。
       autoRun: true,
+      // R3.2 省钱模式：前端传 budget:true 时，轻活步骤自动降便宜档（桌面/web 同一后端，一处生效两端受益）
+      budget: budget === true,
     });
     res.json({ file: result.savedPath, yaml: result.yaml, warnings: result.warnings || [] });
   } catch (err) {
@@ -846,7 +1231,12 @@ app.post('/api/workflows/graph', async (req, res) => {
   // edges 必须显式传数组（可空=无依赖）。缺失则拒绝，避免把原工作流的依赖静默清空（QA #6）。
   if (!Array.isArray(edges)) return res.status(400).json({ error: 'edges must be an array (use [] for no dependencies)' });
   // 每个节点必须有非空 role，否则会存出跑不起来的工作流（QA #14）。
-  const roleless = nodes.filter((n) => !n?.data?.role || typeof n.data.role !== 'string' || !n.data.role.trim());
+  // 例外：approval / human_input 节点本来就没有 role（签字闸门/中途提问），不能误杀。
+  const roleless = nodes.filter((n) => {
+    const t = n?.data?.type;
+    if (t === 'approval' || t === 'human_input') return false;
+    return !n?.data?.role || typeof n.data.role !== 'string' || !n.data.role.trim();
+  });
   if (roleless.length > 0) return res.status(400).json({ error: `每个步骤都要选角色（${roleless.length} 个步骤缺 role）` });
   // 底稿：编辑既有工作流用其自身 YAML；否则用前端传来的 baseYaml（含 llm/agents_dir 等顶层）。
   let base = typeof baseYaml === 'string' ? baseYaml : '';
@@ -863,10 +1253,30 @@ app.post('/api/workflows/graph', async (req, res) => {
   try {
     const { graphToWorkflow } = await import('../dist/canvas/graph.js');
     const { validateWorkflow } = await import('../dist/core/parser.js');
-    const yamlText = graphToWorkflow({ name: String(name || 'workflow'), nodes, edges }, base);
+    let yamlText = graphToWorkflow({ name: String(name || 'workflow'), nodes, edges }, base);
     // 保存前用引擎校验挡环 / 坏依赖 / 非法 loop（不校验角色文件存在，结构有效即可）。
-    const def = yaml.load(yamlText);
-    const errors = validateWorkflow(def);
+    let def = yaml.load(yamlText);
+    let errors = validateWorkflow(def);
+    // #91：自动组队产物最常见的错是"变量名对、但缺 depends_on 边"——compose 链路已有
+    // 确定性补边修复（#87），画布保存之前没接，导致弹窗能跑、进画布却怎么改都存不了。
+    // 这里套用同一套修复（只补边，不改名——autoFixVariableRefs 的模糊改名对用户已有
+    // 工作流太激进，不用），修完再校验，仍有错才拒。修复函数是文件级文本补丁，走临时文件。
+    let autoFixes = [];
+    if (errors.length > 0) {
+      const tmpFix = join(tmpdir(), `ao-canvas-autofix-${process.pid}-${Date.now()}.yaml`);
+      try {
+        writeFileSync(tmpFix, yamlText, 'utf-8');
+        const { autoFixMissingDependsOn } = await import('../dist/cli/compose.js');
+        const fix = await autoFixMissingDependsOn(tmpFix);
+        if (fix.fixed > 0) {
+          yamlText = readFileSync(tmpFix, 'utf-8');
+          def = yaml.load(yamlText);
+          errors = validateWorkflow(def);
+          autoFixes = fix.details;
+        }
+      } catch { /* 修复自身出错不阻塞——按原始校验错误拒绝 */ }
+      finally { try { unlinkSync(tmpFix); } catch { /* 临时文件可能没写成 */ } }
+    }
     if (errors.length > 0) return res.status(400).json({ error: 'invalid workflow', errors });
 
     mkdirSync(COMPOSED_DIR, { recursive: true });
@@ -880,7 +1290,7 @@ app.post('/api/workflows/graph', async (req, res) => {
     }
     if (!isInside(outPath, COMPOSED_DIR)) return res.status(400).json({ error: 'bad path' });
     writeFileSync(outPath, yamlText.endsWith('\n') ? yamlText : yamlText + '\n', 'utf-8');
-    res.json({ file: outPath, overwritten: !!overwritePath });
+    res.json({ file: outPath, overwritten: !!overwritePath, autoFixes });
   } catch (err) { res.status(500).json({ error: err?.message || String(err) }); }
 });
 
@@ -1115,6 +1525,19 @@ app.get('/api/config', async (_req, res) => {
       baseUrl: saved[provider]?.baseUrl || (cfg.base ? process.env[cfg.base] : '') || '',
       model: saved[provider]?.model || '',
       supportsBaseUrl: !!cfg.base,
+      // 清单 providerOverrides 里的换代模型建议——前端模型下拉在拉不到真实
+      // /models 时优先用它兜底（比打包进前端的静态建议新）
+      ...(manifest.providerOverrides?.[provider]?.modelSuggestions
+        ? { modelSuggestions: manifest.providerOverrides[provider].modelSuggestions }
+        : {}),
+      // Claude Code 模型映射回显（配置页编辑用）
+      ...(provider === 'claude-code'
+        ? {
+            sonnetModel: saved[provider]?.sonnetModel || '',
+            opusModel: saved[provider]?.opusModel || '',
+            haikuModel: saved[provider]?.haikuModel || '',
+          }
+        : {}),
     };
   }
   providers.ollama = {
@@ -1162,7 +1585,7 @@ app.get('/api/config', async (_req, res) => {
   const cli = CLI_PROVIDERS.map((name) => ({ name, installed: installedCli.includes(name) }));
   // 推荐 provider：已装的 CLI 优先（零配置）> 已配 key 的 provider > 默认。前端据此默认选中并给提示。
   const keyedWithKey = Object.entries(providers).find(([, p]) => p.hasKey)?.[0];
-  const recommended = installedCli[0] || keyedWithKey || (process.env.AO_PROVIDER || 'apinebula');
+  const recommended = installedCli[0] || keyedWithKey || (process.env.AO_PROVIDER || 'duoyuanx');
   res.json({
     providers,
     cli,
@@ -1172,12 +1595,17 @@ app.get('/api/config', async (_req, res) => {
     remoteProviders: manifest.providers,
     relayPresets: manifest.relayPresets,
     removedProviders: manifest.removedProviders,
-    defaultProvider: process.env.AO_PROVIDER || 'apinebula',
+    defaultProvider: process.env.AO_PROVIDER || 'duoyuanx',
+    // 角色库下拉的可选项:zh/en + 已安装的官方语言包(agency-agents-ko 等)
+    roleLibs: installedRoleLibs(),
   });
 });
 
 app.post('/api/config', (req, res) => {
   const { provider, apiKey, baseUrl, model } = req.body || {};
+  if (typeof apiKey === 'string' && apiKey.trim() && /[^\x20-\x7E]/.test(apiKey)) {
+    return res.status(400).json({ error: 'API key 含中文/全角字符——通常是复制时把旁边的说明文字一起带上了，请只粘贴 key 本身（重新复制或删掉多余字符）' });
+  }
   // Codex 中转走 ~/.codex/config.toml + auth.json，跟其它 provider 的存储方式完全不同，
   // 单独分支处理，不进下面 KEY_ENV/web-keys.json 那套逻辑。
   if (provider === 'codex-cli') {
@@ -1206,7 +1634,7 @@ app.post('/api/config', (req, res) => {
   // process.env"（因为压根没写过）。
   const isCustom = readCustomProviders(CUSTOM_PROVIDERS_FILE).some((p) => p.id === provider) || !!remoteProviderSpec(provider);
   const isKeyed = !!KEY_ENV[provider] || isCustom;
-  if (!provider || (!isKeyed && provider !== 'ollama')) return res.status(400).json({ error: 'unknown provider' });
+  if (!provider || (!isKeyed && provider !== 'ollama')) return res.status(400).json({ error: `unknown provider: ${provider || '(空)'}（引擎不认识该供应商——若刚更新过 AO 或重新构建，请重启引擎后重试）` });
   const saved = readKeys();
   // explicit clear (empty apiKey for keyed / empty model for ollama, nothing else)
   const clearing = isKeyed
@@ -1216,15 +1644,44 @@ app.post('/api/config', (req, res) => {
     delete saved[provider];
     if (KEY_ENV[provider]) { delete process.env[KEY_ENV[provider].key]; if (KEY_ENV[provider].base) delete process.env[KEY_ENV[provider].base]; }
     else if (!isCustom) delete process.env.OLLAMA_BASE_URL;
+    if (provider === 'claude-code') for (const envName of Object.values(CC_MODEL_ENVS)) delete process.env[envName];
   } else {
     saved[provider] = saved[provider] || {};
     if (typeof apiKey === 'string' && apiKey.trim()) saved[provider].apiKey = apiKey.trim();
     if (typeof baseUrl === 'string') saved[provider].baseUrl = baseUrl.trim();
     if (typeof model === 'string') saved[provider].model = model.trim();
+    // Claude Code 模型映射（Sonnet/Opus/Haiku 档位 → 中转商实际模型）；传空串 = 清掉该档位
+    if (provider === 'claude-code') {
+      for (const field of ['sonnetModel', 'opusModel', 'haikuModel']) {
+        const v = req.body[field];
+        if (typeof v !== 'string') continue;
+        if (v.trim()) saved[provider][field] = v.trim();
+        else delete saved[provider][field];
+      }
+      if (typeof model === 'string' && !model.trim()) delete saved[provider].model;
+    }
   }
   writeKeys(saved);
   applyKeys(saved);
   res.json({ ok: true });
+});
+
+// 系统 Claude Code「急救」：诊断/修复被别的软件（cc-switch 等）或手动写坏的全局
+// ~/.claude/settings.json —— 假 token + 中转地址会顶掉官方登录导致整机 CLI 不可用。
+// 跟 AO 的中转配置完全隔离：这里只做减法（删劫持 env 键），从不写入任何 token。
+app.get('/api/claude/health', (_req, res) => {
+  try {
+    res.json(diagnoseClaudeConfig());
+  } catch (err) {
+    res.status(500).json({ error: err?.message || String(err) });
+  }
+});
+app.post('/api/claude/repair', (_req, res) => {
+  try {
+    res.json({ ok: true, ...repairClaudeConfig(), health: diagnoseClaudeConfig() });
+  } catch (err) {
+    res.status(500).json({ error: err?.message || String(err) });
+  }
 });
 
 // ── 自定义供应商：新增 / 删除。编辑已有的连接信息(key/base_url/model)复用上面的
@@ -1236,6 +1693,9 @@ app.post('/api/custom-providers', (req, res) => {
   }
   if (typeof baseUrl !== 'string' || !baseUrl.trim()) {
     return res.status(400).json({ error: 'baseUrl required' });
+  }
+  if (typeof apiKey === 'string' && apiKey.trim() && /[^\x20-\x7E]/.test(apiKey)) {
+    return res.status(400).json({ error: 'API key 含中文/全角字符——通常是复制时把旁边的说明文字一起带上了，请只粘贴 key 本身（重新复制或删掉多余字符）' });
   }
   const err = validateCustomProviderId(id, reservedProviderIds());
   const existing = readCustomProviders(CUSTOM_PROVIDERS_FILE);
@@ -1286,12 +1746,20 @@ app.delete('/api/custom-providers/:id', (req, res) => {
 });
 
 // ── Test a provider's key with a minimal real API call ──
+// API key 只可能是可打印 ASCII——含中文/全角字符（复制时把说明文字一起带上了）时，
+// undici 往 authorization 头塞会抛底层 ByteString 错误，用户完全看不懂。前置校验给人话。
+const keyCharsetError = (key) => (typeof key === 'string' && /[^\x20-\x7E]/.test(key))
+  ? 'API key 含中文/全角字符——通常是复制时把旁边的说明文字一起带上了，请只粘贴 key 本身（重新复制或删掉多余字符）'
+  : null;
+
 app.post('/api/test-provider', async (req, res) => {
   // apiKey/baseUrl/model 可由请求带入覆盖:配置页"填了就能测",不用先保存
   const { provider, apiKey: overrideKey, baseUrl: overrideBase, model: overrideModel } = req.body || {};
+  const keyErr = keyCharsetError(overrideKey);
+  if (keyErr) return res.json({ ok: false, error: keyErr });
   await getRemoteManifest();
   const isCustomProvider = readCustomProviders(CUSTOM_PROVIDERS_FILE).some((p) => p.id === provider) || !!remoteProviderSpec(provider);
-  if (!provider || (!KEY_ENV[provider] && provider !== 'ollama' && !isCustomProvider)) return res.status(400).json({ ok: false, error: 'unknown provider' });
+  if (!provider || (!KEY_ENV[provider] && provider !== 'ollama' && !isCustomProvider)) return res.status(400).json({ ok: false, error: `unknown provider: ${provider || '(空)'}（引擎不认识该供应商——若刚更新过 AO 或重新构建，请重启引擎后重试）` });
   // 自定义供应商没有专属 env 变量名，key 只存在 saved[provider].apiKey 里。
   const key = provider === 'ollama' ? 'n/a'
     : ((typeof overrideKey === 'string' && overrideKey.trim()) || (KEY_ENV[provider] ? process.env[KEY_ENV[provider].key] : readKeys()[provider]?.apiKey));
@@ -1332,8 +1800,15 @@ app.post('/api/test-provider', async (req, res) => {
     }
     const latencyMs = Date.now() - t0;
     if (!r.ok) {
-      const txt = (await r.text().catch(() => '')).slice(0, 200);
-      return res.json({ ok: false, error: `HTTP ${r.status} ${txt}` });
+      // 上游报错多为 {"error":{"message":"..."}} JSON——抽出人读 message，
+      // 别把整段原始 JSON 甩给用户（会被 UI 截断，只见半句）
+      const txt = await r.text().catch(() => '');
+      let msg = txt;
+      try {
+        const j = JSON.parse(txt);
+        msg = j?.error?.message || j?.message || (typeof j?.error === 'string' ? j.error : txt);
+      } catch { /* 非 JSON 原样透传 */ }
+      return res.json({ ok: false, error: `HTTP ${r.status} ${String(msg).slice(0, 300)}` });
     }
     return res.json({ ok: true, latencyMs });
   } catch (e) {
@@ -1346,44 +1821,164 @@ app.post('/api/test-provider', async (req, res) => {
 // ── 拉取供应商的真实可用模型列表（OpenAI 兼容 GET /models；claude 走 Anthropic 原生端点）──
 // body 可带 baseUrl/apiKey 覆盖：add-custom 场景用户刚填了还没保存也能先拉列表。
 app.post('/api/provider-models', async (req, res) => {
-  const { provider, baseUrl: overrideBase, apiKey: overrideKey } = req.body || {};
+  const { provider, baseUrl: overrideBase, apiKey: overrideKey, protocol } = req.body || {};
+  const keyErr = keyCharsetError(overrideKey);
+  if (keyErr) return res.json({ ok: false, error: keyErr });
   await getRemoteManifest();
   const saved = provider ? (readKeys()[provider] || {}) : {};
   const spec = provider ? API_PROVIDER_MAP[provider] : null;
   const remote = provider ? remoteProviderSpec(provider) : null;
-  const isClaude = provider === 'claude';
+  // protocol:'anthropic' = Anthropic 兼容端点（claude-code 中转商），认证头用 x-api-key
+  const isClaude = provider === 'claude' || protocol === 'anthropic';
   const base = String(
     overrideBase || saved.baseUrl || (spec && process.env[spec.envBase]) || spec?.defaultBaseUrl || remote?.baseUrl ||
     (isClaude ? 'https://api.anthropic.com/v1' : '')
   ).replace(/\/+$/, '');
   const key = overrideKey || saved.apiKey || (spec ? process.env[spec.envKey] : '') || (isClaude ? process.env.ANTHROPIC_API_KEY : '');
   if (!base) return res.status(400).json({ ok: false, error: 'baseUrl required' });
-  if (!key) return res.json({ ok: false, error: '未设置 API key' });
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 12000);
+  // 模型公司官方 API 拉不到真实列表时（没配 key / 请求失败），退回 models.dev
+  // 公开目录——比打包进前端的静态建议新得多（cc-switch 同款做法）。
+  const modelsDevFallback = async (error) => {
+    const list = await modelsDevList(provider);
+    if (list) return res.json({ ok: true, models: list, source: 'models.dev' });
+    return res.json({ ok: false, error });
+  };
+  // 不因缺 key 短路：不少聚合商（如 ModelVerse）的 /models 是公开接口，无鉴权也
+  // 能拉全量目录——cc-switch 的大列表就是这么来的。有 key 带上，没 key 裸请求。
+  const headers = isClaude
+    ? { ...(key ? { 'x-api-key': key } : {}), 'anthropic-version': '2023-06-01' }
+    : key ? { authorization: `Bearer ${key}` } : {};
+  // 对齐 cc-switch：显式带 User-Agent。undici 默认不发 UA，部分端点的 WAF/UA 白名单会拦
+  // 裸请求（cc-switch 实测 Kimi 等站点白名单只认 claude-cli/* 前缀；Anthropic 协议目标
+  // 用它最稳），OpenAI 兼容目标用产品 UA（诚实标识，非伪装浏览器）。
+  headers['user-agent'] = isClaude ? 'claude-cli/2.1.161 (external, cli)' : `agency-orchestrator/${PKG_VERSION}`;
+  // 端点候选（对齐 cc-switch build_models_url_candidates 的顺序，避免多打一次必 404 的请求）：
+  //  · base 已以版本段 /v{N} 结尾（如 /v1、智谱 /paas/v4）→ 版本号已在路径里，正确端点是 {base}/models；
+  //    版本非 /v1 时再把 {base}/v1/models 作为兜底次候选。
+  //  · base 是不带版本的根地址（用户照抄 CLI 中转端点常见）→ 先试 OpenAI 惯例的 {base}/v1/models，
+  //    再把 {base}/models 作为兜底。
+  // 404/405 时自动尝试下一个候选；其它状态（401/403 等换路径也没用）直接停。
+  const endsWithVersion = /\/v\d+$/.test(base);
+  const candidates = endsWithVersion
+    ? (base.endsWith('/v1') ? [`${base}/models`] : [`${base}/models`, `${base}/v1/models`])
+    : [`${base}/v1/models`, `${base}/models`];
+  let lastErr = '';
   try {
-    const headers = isClaude
-      ? { 'x-api-key': key, 'anthropic-version': '2023-06-01' }
-      : { authorization: `Bearer ${key}` };
-    const r = await fetch(`${base}/models`, { signal: ctrl.signal, headers });
-    if (!r.ok) {
+    for (const url of candidates) {
+      // 网络层瞬断（TLS 握手失败/连接重置等，实测部分聚合站 CDN 时好时坏）自动重试一次，
+      // 对齐 cc-switch「多线路候选 + 重试」的容错思路；HTTP 有响应（哪怕 4xx/5xx）不重试。
+      let r;
+      for (let attempt = 0; attempt < 2 && !r; attempt++) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 20000);
+        try {
+          r = await fetch(url, { signal: ctrl.signal, headers });
+        } catch (e) {
+          // fetch() 抛错时 undici 只给一句 'fetch failed'，真正原因在 e.cause（ENOTFOUND/
+          // ECONNREFUSED/ETIMEDOUT/证书错误/连接重置…）。把 cause 一并带出，用户/日志才看得懂到底卡在哪。
+          const cause = e?.cause?.code || e?.cause?.message || e?.cause;
+          lastErr = e?.name === 'AbortError'
+            ? '超时（20s）：该端点响应过慢或网络不通'
+            : `${e?.message || String(e)}${cause ? `（${cause}）` : ''} · 端点 ${url}`;
+          if (attempt === 0) await new Promise((ok) => setTimeout(ok, 800));
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      if (!r) break;
+      if (r.ok) {
+        const j = await r.json().catch(() => ({}));
+        const models = (Array.isArray(j.data) ? j.data : Array.isArray(j.models) ? j.models : [])
+          .map((m) => (typeof m === 'string' ? m : m?.id))
+          .filter((id) => typeof id === 'string' && id)
+          .sort();
+        if (models.length) return res.json({ ok: true, models });
+        lastErr = 'empty model list';
+        break;
+      }
       const txt = (await r.text().catch(() => '')).slice(0, 200);
-      return res.json({ ok: false, error: `HTTP ${r.status} ${txt}` });
+      lastErr = `HTTP ${r.status} ${txt}`;
+      // 404/405 = 该路径不对/不支持 GET，换下一个候选；401/403 等换路径也没用，直接停（对齐 cc-switch）
+      if (r.status !== 404 && r.status !== 405) break;
     }
-    const j = await r.json().catch(() => ({}));
-    const models = (Array.isArray(j.data) ? j.data : Array.isArray(j.models) ? j.models : [])
-      .map((m) => (typeof m === 'string' ? m : m?.id))
-      .filter((id) => typeof id === 'string' && id)
-      .sort();
-    return res.json({ ok: true, models });
+    return await modelsDevFallback(!key && /HTTP 40[13]/.test(lastErr) ? `未设置 API key（${lastErr}）` : lastErr);
   } catch (e) {
-    return res.json({ ok: false, error: e?.name === 'AbortError' ? '超时（12s）' : (e?.message || String(e)) });
-  } finally {
-    clearTimeout(timer);
+    return await modelsDevFallback(e?.message || String(e));
   }
 });
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, version: PKG_VERSION }));
+// ── 从本机 cc-switch 一键导入已配供应商的 key ──────────────────────────────
+// cc-switch 桌面版把各家中转商的 key 存在 ~/.cc-switch/cc-switch.db（SQLite，v3.10+）。
+// 很多用户在 cc-switch 里已配好 key —— 与其让他复制粘贴一遍，不如一键导入。这等价于
+// cc-switch 自家的 ccswitch:// 深链接「URL 直接带 key 导入」思路，只是数据源换成本机已有
+// 配置。只读访问（-readonly），绝不写 cc-switch 的库；key 原文不出服务端，前端只见脱敏预览。
+// 读库用系统 sqlite3 CLI（macOS/多数 Linux 自带；缺失则整个功能静默隐藏，不影响其它）。
+function readCcSwitchProviders() {
+  const db = join(homedir(), '.cc-switch', 'cc-switch.db');
+  if (!existsSync(db)) return null;
+  let rows;
+  try {
+    const out = execFileSync('sqlite3', ['-json', '-readonly', db,
+      'SELECT app_type, name, website_url, settings_config, is_current FROM providers'], { timeout: 5000 }).toString();
+    rows = out.trim() ? JSON.parse(out) : [];
+  } catch { return null; }
+  const list = [];
+  for (const row of rows) {
+    let cfg; try { cfg = JSON.parse(row.settings_config || '{}'); } catch { continue; }
+    const env = cfg?.env && typeof cfg.env === 'object' ? cfg.env : {};
+    const key = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || env.OPENAI_API_KEY || env.GEMINI_API_KEY || '';
+    if (!key || typeof key !== 'string') continue; // 官方登录/无 key 的条目（如 Claude Official）跳过
+    const baseUrl = env.ANTHROPIC_BASE_URL || env.OPENAI_BASE_URL || env.GEMINI_BASE_URL || '';
+    list.push({
+      id: `${row.app_type}:${row.name}`,
+      name: row.name,
+      appType: row.app_type,
+      baseUrl,
+      keyPreview: key.length > 10 ? `${key.slice(0, 6)}…${key.slice(-4)}` : `${key.slice(0, 2)}…`,
+      isCurrent: !!row.is_current,
+      _key: key, // 内部字段：仅服务端使用，响应前剥除
+    });
+  }
+  return list;
+}
+
+// 列出 cc-switch 里可导入的条目（key 只回脱敏预览）
+app.get('/api/ccswitch-providers', (_req, res) => {
+  const list = readCcSwitchProviders();
+  if (!list) return res.json({ ok: false });
+  res.json({ ok: true, providers: list.map(({ _key, ...pub }) => pub) });
+});
+
+// 把选中条目的 key 写入 AO 的目标 provider（key 全程留在服务端，不经过浏览器）。
+// includeBaseUrl 默认不带：cc-switch 存的是 Anthropic 协议根地址（如 api.modelverse.cn），
+// 与 AO 云端 API 供应商的 OpenAI 兼容 /v1 端点语义不同，盲导会把聊天打挂；
+// 只有 claude-code 中转这类同语义目标才由前端显式传 true。
+app.post('/api/ccswitch-import', (req, res) => {
+  const { source, provider, includeBaseUrl } = req.body || {};
+  if (!source || !provider) return res.status(400).json({ error: 'source and provider required' });
+  const list = readCcSwitchProviders();
+  const entry = list?.find((x) => x.id === source);
+  if (!entry) return res.status(404).json({ error: 'cc-switch entry not found' });
+  const keys = readKeys();
+  keys[provider] = { ...(keys[provider] || {}), apiKey: entry._key, ...(includeBaseUrl && entry.baseUrl ? { baseUrl: entry.baseUrl } : {}) };
+  writeKeys(keys);
+  applyKeys(keys);
+  res.json({ ok: true, keyPreview: entry.keyPreview });
+});
+
+// 引擎代码热更新检测：进程启动后若 server.js / dist（注册表、CLI）被重新构建，
+// 内存里跑的仍是旧代码——会出现"前端认识新供应商、引擎报 unknown provider"、
+// 新端点 404 之类的版本漂移谜题。health 带上 stale 标记，前端据此提示重启引擎。
+const BOOT_TIME = Date.now();
+const STALE_PROBES = [
+  join(__dirname, 'server.js'),
+  join(ROOT, 'dist', 'connectors', 'api-providers.js'),
+  CLI,
+];
+const isEngineStale = () => STALE_PROBES.some(f => {
+  try { return statSync(f).mtimeMs > BOOT_TIME; } catch { return false; }
+});
+app.get('/api/health', (_req, res) => res.json({ ok: true, version: PKG_VERSION, stale: isEngineStale() }));
 
 // SPA fallback: serve the React app for any non-API, non-asset route.
 // 故意「无条件」注册：即便启动时前端缺失（HAS_NEW_UI=false），也要给一个可读的诊断页，

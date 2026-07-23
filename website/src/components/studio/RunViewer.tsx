@@ -1,6 +1,7 @@
 import { Check, ChevronDown, Copy, Download, FileDown, Loader2, MessageSquare, Minus, Scale, Square, Terminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Tip } from "@/components/ui/tip";
 import { useCopy } from "@/components/ui/copy-button";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { StepList } from "./StepList";
@@ -11,7 +12,7 @@ import { downloadExport, type Workflow } from "@/lib/studio";
 import { track } from "@/lib/track";
 import { cn } from "@/lib/utils";
 
-export function RunViewer({ onViewHistory }: { onViewHistory?: () => void }) {
+export function RunViewer({ onViewHistory, onGoProviders }: { onViewHistory?: () => void; onGoProviders?: () => void }) {
   const { t, lang } = useLanguage();
   const { runs, openId, open, stop, rerunWithFeedback, submitInput } = useRunManager();
   const run = runs.find((r) => r.id === openId) || null;
@@ -95,9 +96,11 @@ export function RunViewer({ onViewHistory }: { onViewHistory?: () => void }) {
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <Button size="icon" variant="ghost" title={t.studio.run.terminalOutput} onClick={() => setShowTerminal((v) => !v)}>
-              <Terminal className="size-4" />
-            </Button>
+            <Tip label={t.studio.run.terminalOutput}>
+              <Button size="icon" variant="ghost" onClick={() => setShowTerminal((v) => !v)}>
+                <Terminal className="size-4" />
+              </Button>
+            </Tip>
             {running && (
               <Button size="sm" variant="ghost" title={t.studio.run.backgroundTitle} onClick={() => open(null)}>
                 <Minus className="size-4" />
@@ -110,9 +113,11 @@ export function RunViewer({ onViewHistory }: { onViewHistory?: () => void }) {
                 {t.studio.run.stop}
               </Button>
             ) : (
-              <Button size="icon" variant="ghost" onClick={() => open(null)}>
-                <X className="size-4" />
-              </Button>
+              <Tip label={t.studio.run.close}>
+                <Button size="icon" variant="ghost" onClick={() => open(null)}>
+                  <X className="size-4" />
+                </Button>
+              </Tip>
             )}
           </div>
         </div>
@@ -120,7 +125,24 @@ export function RunViewer({ onViewHistory }: { onViewHistory?: () => void }) {
         {/* body */}
         <div ref={scrollRef} className="flex-1 overflow-auto p-5">
           {run.error && (
-            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{run.error}</div>
+            <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">
+              {run.error}
+              {/* 认证类错误不能是死路：报错 → 一键跳到密钥配置，闭环掉"看着 401 干瞪眼" */}
+              {onGoProviders && /401|403|unauthor|invalid.{0,8}(key|token)|api.?key|认证|未设置|无效/i.test(run.error) && (
+                <div className="mt-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      open(null);
+                      onGoProviders();
+                    }}
+                  >
+                    {t.studio.run.goConfigureKey}
+                  </Button>
+                </div>
+              )}
+            </div>
           )}
           {showTerminal ? (
             <pre className="overflow-auto rounded-xl border border-border/70 bg-[#0b0e16] p-4 font-mono text-xs leading-relaxed text-white/80">
@@ -157,6 +179,8 @@ export function RunViewer({ onViewHistory }: { onViewHistory?: () => void }) {
             {exportErr ? `导出失败：${exportErr}` : running ? t.studio.run.backgroundHint : run.state === "done" ? (
               <>
                 {t.studio.run.savedToHistory}
+                {/* 专家咨询自动落盘为可复用工作流——明确告知去处（用户反馈"不知道保存到哪里去了"） */}
+                {run.savedWorkflow && <span className="ml-2">{t.studio.run.savedToWorkflows}</span>}
                 {/* 保存位置:用户反馈"不知道文件存在哪"——显示绝对路径,点击复制 */}
                 {run.outputDir && (
                   <button
@@ -223,9 +247,10 @@ export function RunViewer({ onViewHistory }: { onViewHistory?: () => void }) {
                 {lang === "en" ? "vs Single AI" : "对比单个 AI"}
               </Button>
             )}
-            {!running && run.state === "done" && onViewHistory && (
+            {/* 失败/中断的运行更需要这个入口——历史详情里有「继续运行」可从失败步续跑 */}
+            {!running && (run.state === "done" || run.state === "error") && onViewHistory && (
               <Button size="sm" variant="ghost" onClick={() => onViewHistory()}>
-                {t.studio.run.viewHistory}
+                {run.state === "error" ? t.studio.run.viewHistoryContinue : t.studio.run.viewHistory}
               </Button>
             )}
             {!running && (

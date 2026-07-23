@@ -10,7 +10,7 @@ export { buildDAG, formatDAG } from './core/dag.js';
 export { executeDAG } from './core/executor.js';
 export { evaluateCondition } from './core/condition.js';
 export { renderTemplate, extractVariables } from './core/template.js';
-export { loadAgent, listAgents } from './agents/loader.js';
+export { loadAgent, listAgents, listUserAgents, userRolesDir, USER_ROLE_CATEGORY } from './agents/loader.js';
 export { ClaudeConnector } from './connectors/claude.js';
 export { OllamaConnector } from './connectors/ollama.js';
 export { OpenAICompatibleConnector } from './connectors/openai-compatible.js';
@@ -93,8 +93,19 @@ export async function run(
      * 在原稿基础上修改重做。需配合 resumeDir + fromStep 使用。
      */
     feedback?: string;
+    /**
+     * acceptance 自动核验+未过自动返工一轮。优先级：此选项（CLI --verify/--no-verify）
+     * > YAML 顶层 verify > 默认开。只影响写了 acceptance 的步骤。
+     */
+    verify?: boolean;
     /** 覆盖 LLM 配置（例如来自 ao demo） */
     llmOverride?: Partial<import('./types.js').LLMConfig>;
+    /**
+     * SIGTERM/SIGINT（网页端关闭页面杀子进程、终端 Ctrl-C）时把已完成步骤落盘成
+     * metadata 再退出——中断的 run 才能出现在历史里、支持「继续运行」。
+     * 仅 CLI 进程开启；库内嵌调用（如 web 服务的 in-process compare）勿开。
+     */
+    signalFlush?: boolean;
   }
 ): Promise<import('./types.js').WorkflowResult> {
   const workflow = parseWorkflow(workflowPath);
@@ -175,6 +186,7 @@ export async function run(
 
   // Resume: 计算 skipStepIds + 兼容旧 output 变量名
   let skipStepIds: Set<string> | undefined;
+  let restoredStepMeta: Map<string, Partial<import('./types.js').StepResult>> | undefined;
 
   if (resumeDir) {
     // 兼容变量重命名：如果旧 metadata 的 output_var 和新 YAML 的 output 不同，
@@ -192,6 +204,14 @@ export async function run(
     }
 
     skipStepIds = computeResumeSkipIds(dag, getCompletedStepIds(resumeDir), fromStep);
+
+    // 被复用步骤的展示字段（角色名/验收标准/核验结果）从旧档案带回新档案，
+    // 否则续跑产生的 metadata 里这些步骤全是裸 id、验收记录凭空消失
+    restoredStepMeta = new Map(
+      (metadata.steps as import('./types.js').StepResult[])
+        .filter(s => s.status === 'completed')
+        .map(s => [s.id, { agentName: s.agentName, agentEmoji: s.agentEmoji, acceptance: s.acceptance, verification: s.verification }])
+    );
 
     if (!options?.quiet) {
       console.log(`  恢复自: ${resumeDir}`);
@@ -256,6 +276,54 @@ export async function run(
     console.log('─'.repeat(50));
   }
 
+  // SIGTERM/SIGINT 优雅落盘：executor 增量写入 partialSteps，信号来时把
+  // 已完成步骤 + 未完成占位存成 metadata 再退出。没有它，网页端"等输入时关页"
+  // 或终端 Ctrl-C 的 run 会无痕消失，历史里无法「继续运行」。
+  const partialSteps: import('./types.js').StepResult[] = [];
+  const runStartedAt = Date.now();
+  let flushHandler: ((signal: NodeJS.Signals) => void) | undefined;
+  if (options?.signalFlush) {
+    const flushAndExit = (signal: NodeJS.Signals) => {
+      try {
+        const doneById = new Map(partialSteps.map(s => [s.id, s]));
+        const interrupted: import('./types.js').WorkflowResult = {
+          name: workflow.name,
+          file: resolve(workflowPath),
+          success: false,
+          steps: dag.levels.flat().map(id => {
+            const node = dag.nodes.get(id)!;
+            return doneById.get(id) ?? {
+              id,
+              role: node.step.role || '',
+              status: 'failed' as const,
+              error: `运行被中断 (${signal})`,
+              output_var: node.step.output,
+              duration: 0,
+              tokens: { input: 0, output: 0 },
+            };
+          }),
+          totalDuration: Date.now() - runStartedAt,
+          totalTokens: partialSteps.reduce(
+            (acc, s) => ({ input: acc.input + s.tokens.input, output: acc.output + s.tokens.output }),
+            { input: 0, output: 0 }
+          ),
+          inputs: Object.fromEntries(
+            Array.from(inputMap.entries()).filter(([k]) => (workflow.inputs || []).some(i => i.name === k))
+          ),
+        };
+        const dir = saveResults(interrupted, options?.outputDir || defaultOutputDir());
+        if (!options?.quiet) {
+          const done = partialSteps.filter(s => s.status === 'completed').length;
+          console.log(`\n⚠️  运行被中断 (${signal})，已完成 ${done} 步已存档: ${dir}`);
+        }
+      } catch { /* 落盘失败也必须退出 */ }
+      process.exit(signal === 'SIGINT' ? 130 : 143);
+    };
+    flushHandler = flushAndExit;
+    process.once('SIGTERM', flushAndExit);
+    process.once('SIGINT', flushAndExit);
+  }
+
   const result = await executeDAG(dag, {
     connector,
     agentsDir: workflow.agents_dir,
@@ -263,7 +331,10 @@ export async function run(
     concurrency: workflow.concurrency || 2,
     inputs: inputMap,
     skipStepIds,
+    restoredStepMeta,
     feedback: feedbackOption,
+    verify: options?.verify ?? workflow.verify ?? true,
+    stepResultsSink: partialSteps,
     onBatchStart: quiet ? undefined : useWatch ? (nodes) => {
       for (const node of nodes) {
         watchCallback!({ type: 'step_start', stepId: node.step.id, role: node.step.role, total: totalSteps, completed: stepCounter });
@@ -287,7 +358,16 @@ export async function run(
     },
   } satisfies ExecutorOptions);
 
+  // 工作流跑完立即摘除信号监听：本次运行即将正常存档，此后（--materialize/--export
+  // 等收尾期）的 Ctrl-C 不能再把已成功的运行二次存档成"被中断"的重复档案
+  if (flushHandler) {
+    process.removeListener('SIGTERM', flushHandler);
+    process.removeListener('SIGINT', flushHandler);
+  }
+
   result.name = workflow.name;
+  // 源文件绝对路径随 metadata 存档——历史记录的"重跑/从某步续跑"靠它定位工作流
+  result.file = resolve(workflowPath);
   // 保存原始用户输入，便于 --resume 下次恢复
   result.inputs = Object.fromEntries(
     Array.from(inputMap.entries()).filter(([k]) =>
@@ -324,6 +404,10 @@ export async function compareWorkflowVsBaseline(
     genOverride?: Partial<import('./types.js').LLMConfig>;
     /** 评审模型（建议强模型）；不传退回生成模型 */
     judgeLlm?: import('./types.js').LLMConfig;
+    /** acceptance 自动核验开关，透传给内部 run()（CLI --verify/--no-verify 在 compare 模式同样生效） */
+    verify?: boolean;
+    /** SIGTERM/SIGINT 优雅存档，透传给内部 run()（仅 CLI 进程开；web in-process 调用勿开） */
+    signalFlush?: boolean;
   },
 ): Promise<{
   multiOutput: string;
@@ -342,6 +426,8 @@ export async function compareWorkflowVsBaseline(
     quiet: options?.quiet ?? true,
     outputDir: options?.outputDir,
     llmOverride: options?.genOverride,
+    verify: options?.verify,
+    signalFlush: options?.signalFlush,
   });
   const multiOutput = finalOutput(result);
 
@@ -350,9 +436,11 @@ export async function compareWorkflowVsBaseline(
   const baselineTask = buildBaselineTask(workflow.name, workflow.description, effInputs);
   const baselineOutput = await runBaseline(genLlm, baselineTask);
 
-  // 3) 双向盲评
+  // 3) 双向盲评。最终步声明了 acceptance 就作评分锚点（用运行时渲染后的文本；
+  //    两份产出同一把尺——这正是"验收写成数据"优于再叠一个 Reviewer Agent 的地方）
   const judgeLlm = options?.judgeLlm ?? genLlm;
-  const verdict = await compareOutputs(judgeLlm, baselineTask, multiOutput, baselineOutput);
+  const finalAcceptance = [...result.steps].reverse().find(s => s.status === 'completed')?.acceptance;
+  const verdict = await compareOutputs(judgeLlm, baselineTask, multiOutput, baselineOutput, finalAcceptance);
 
   return { multiOutput, baselineOutput, verdict, result };
 }

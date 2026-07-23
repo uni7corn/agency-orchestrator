@@ -20,6 +20,8 @@ export interface LiveStep {
   total?: number;
   content: string;
   meta?: string;
+  /** 验收核验未满足的条目（来自 step-verify-item 事件），展示为核验详情而非正文 */
+  verifyItems?: string[];
   status: StepStatus;
 }
 
@@ -62,6 +64,8 @@ export interface RunInstance {
   pendingInput?: PendingInput | null;
   /** 本次运行产物的保存目录（绝对路径,来自服务端 output-dir 事件） */
   outputDir?: string;
+  /** 专家咨询自动落盘的工作流文件（来自 workflow-saved 事件），完成后提示用户去「工作流」页 */
+  savedWorkflow?: string;
 }
 
 interface RunManagerValue {
@@ -81,6 +85,32 @@ const Ctx = createContext<RunManagerValue | null>(null);
 
 let counter = 0;
 
+// 长任务（工作流跑几分钟很常见）完成/失败时，用户多半已切去别的窗口——系统通知
+// 把人叫回来，是"跑完了没人知道"这个留存漏点的最小修复。仅在页面不可见时才弹。
+function notifyRunEnd(title: string, ok: boolean, body: string) {
+  try {
+    if (typeof Notification === "undefined" || typeof document === "undefined") return;
+    if (document.visibilityState === "visible") return;
+    if (Notification.permission !== "granted") return;
+    new Notification(`${ok ? "✅" : "❌"} ${title}`, { body });
+  } catch {
+    /* 通知失败绝不影响运行本身 */
+  }
+}
+
+// human_input/approval 暂停等输入时同样把人叫回来——错过弹框运行会一直干等，
+// 比"跑完了没人知道"更伤（token 已花，产出卡在半路）。仅页面不可见时弹。
+function notifyInputNeeded(title: string, prompt: string) {
+  try {
+    if (typeof Notification === "undefined" || typeof document === "undefined") return;
+    if (document.visibilityState === "visible") return;
+    if (Notification.permission !== "granted") return;
+    new Notification(`⏸ ${title}`, { body: prompt });
+  } catch {
+    /* 通知失败绝不影响运行本身 */
+  }
+}
+
 export function RunProvider({ children }: { children: ReactNode }) {
   const { t } = useLanguage();
   const runsRef = useRef<Map<string, RunInstance>>(new Map());
@@ -93,6 +123,13 @@ export function RunProvider({ children }: { children: ReactNode }) {
     (request: RunRequest): string => {
       const id = `run-${++counter}`;
       const ctrl = new AbortController();
+
+      // 借用户点「运行」这个手势申请通知权限（浏览器要求在用户手势里请求）
+      try {
+        if (typeof Notification !== "undefined" && Notification.permission === "default") {
+          void Notification.requestPermission();
+        }
+      } catch { /* noop */ }
 
       const seeded: LiveStep[] =
         request.kind === "role"
@@ -145,6 +182,7 @@ export function RunProvider({ children }: { children: ReactNode }) {
             break;
           case "await-input":
             inst.pendingInput = { stepId: data.stepId, prompt: data.prompt, type: data.type };
+            notifyInputNeeded(inst.title, data.prompt || "");
             break;
           case "step-header":
             // 某步推进了 → 清掉等待态（用户已提交、或本就不需要输入）
@@ -177,11 +215,20 @@ export function RunProvider({ children }: { children: ReactNode }) {
               upsert(data.id, { meta: data.meta, status: "done" });
             }
             break;
+          case "step-verify-item": {
+            const i = inst.steps.findIndex((s) => s.id === data.id);
+            const prev = i >= 0 ? inst.steps[i].verifyItems ?? [] : [];
+            upsert(data.id, { verifyItems: [...prev, data.text] });
+            break;
+          }
           case "workflow-summary":
             inst.summary = data.text;
             break;
           case "output-dir":
             inst.outputDir = data.dir;
+            break;
+          case "workflow-saved":
+            inst.savedWorkflow = data.file;
             break;
           case "stdout":
             inst.terminal += data.text;
@@ -201,11 +248,13 @@ export function RunProvider({ children }: { children: ReactNode }) {
             } else if (inst.state !== "error") {
               inst.state = "done";
             }
+            notifyRunEnd(inst.title, inst.state === "done", inst.state === "done" ? t.studio.run.notifyDoneBody : t.studio.run.notifyFailBody);
             break;
           }
           case "error":
             inst.error = data.message || t.studio.run.runError;
             inst.state = "error";
+            notifyRunEnd(inst.title, false, t.studio.run.notifyFailBody);
             break;
         }
         touch();

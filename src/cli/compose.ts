@@ -10,6 +10,59 @@ import { resolve, relative } from 'node:path';
 import { createConnector } from '../connectors/factory.js';
 import type { LLMConfig } from '../types.js';
 import { t } from '../i18n.js';
+import yaml from 'js-yaml';
+
+// ── R3.1/R3.2 预算档（--budget）：把「轻活」步骤降到便宜档，「重活」步骤保持默认贵档 ──
+// 各 provider 的「便宜档」模型；没有更便宜档的（如 deepseek 默认就是便宜的 deepseek-chat）不列 → --budget 对其为 no-op。
+const BUDGET_LIGHT_MODEL: Record<string, string> = {
+  claude: 'claude-haiku-4-5-20251001',
+  openai: 'gpt-5.4-mini',
+  apinebula: 'gpt-5.4-mini',
+  rootflowai: 'claude-haiku-4-5-20251001',
+  cubence: 'claude-haiku-4-5-20251001',
+  ccsub: 'claude-haiku-4-5-20251001',
+  // deepseek：默认若走贵的 reasoner，轻活降到便宜的 chat；默认已是 chat 时则 no-op（light===topModel）
+  deepseek: 'deepseek-chat',
+};
+// 「轻活」词（抽取/汇总/格式化/罗列/翻译/润色…）→ 可降档；「重活」词（分析/设计/评审/创作…）→ 保贵档。
+// 保守策略：重活优先，命中难词或不确定一律保贵档，只对明确的轻活降档，护住关键质量。
+// 明确的「把 X 重塑成 Y」动作（整理成/格式化/翻译成…）——这类步骤只是重组已有内容，
+// 即便 task 里引用了上游的「洞察/分析」等名词，本身也是轻活。优先级高于 HARD，修掉误判。
+const REFORMAT_RE = /整理成|整理为|归纳成|汇总成|格式化|排版成|排好版|输出成|润色|校对|翻译成|翻译为|改写成|精简成|reformat|format into|rewrite as|translate|proofread|polish/i;
+const HARD_TASK_RE = /分析|设计|架构|评审|审查|判断|决策|创作|撰写|写作|方案|策略|规划|论证|洞察|architect|analy|design|review|judge|strateg|\bplan|reason|critique|creat|writ/i;
+const LIGHT_TASK_RE = /抽取|提取|汇总|归纳|整理|罗列|列出|列表|格式化|排版|翻译|校对|润色|清洗|去重|标注|摘要|summar|extract|format|translat|proofread|\blist|organi[sz]e|categor|clean/i;
+
+function classifyStepTier(step: { role?: string; task?: string }): 'light' | 'hard' {
+  const text = `${step?.role ?? ''} ${step?.task ?? ''}`;
+  if (REFORMAT_RE.test(text)) return 'light';   // 明确的重塑动作 → 轻活（优先，纠正"引用难词名词"的误判）
+  if (HARD_TASK_RE.test(text)) return 'hard';   // 其次：命中难词一律保贵档
+  if (LIGHT_TASK_RE.test(text)) return 'light';
+  return 'hard';                                 // 不确定 → 保贵档（保守，护质量）
+}
+
+/** 对已生成的 workflow YAML 施加预算分档：给「轻活」步骤加 step.llm.model=便宜档。返回新 YAML + 一句说明。 */
+export function applyBudgetTiering(yamlText: string, provider: string): { yaml: string; note?: string } {
+  const light = BUDGET_LIGHT_MODEL[provider];
+  if (!light) return { yaml: yamlText, note: `--budget：provider "${provider}" 无更便宜档位可降（可能默认已是便宜档），未改动` };
+  let doc: any;
+  try { doc = yaml.load(yamlText); } catch { return { yaml: yamlText }; }
+  if (!doc || !Array.isArray(doc.steps)) return { yaml: yamlText };
+  const topModel = doc.llm?.model;
+  let downgraded = 0;
+  for (const step of doc.steps) {
+    if (!step || typeof step !== 'object') continue;
+    if (step.llm?.model) continue;                // 步骤已显式指定模型 → 尊重，不覆盖
+    if (classifyStepTier(step) === 'light' && light !== topModel) {
+      step.llm = { ...(step.llm ?? {}), model: light };
+      downgraded++;
+    }
+  }
+  if (downgraded === 0) return { yaml: yamlText, note: '--budget：没有可降档的轻活步骤（都判为重活或已指定模型），未改动' };
+  return {
+    yaml: yaml.dump(doc, { lineWidth: -1 }),
+    note: `--budget：${downgraded}/${doc.steps.length} 个轻活步骤降到便宜档 ${light}（重活步骤保持默认，省钱不掉关键质量）`,
+  };
+}
 
 /** 精简的角色摘要，供 LLM 选角色用 */
 export interface RoleSummary {
@@ -24,7 +77,8 @@ export interface RoleSummary {
  * 从 agents 目录构建精简的角色目录
  */
 export function buildRoleCatalog(agentsDir: string): RoleSummary[] {
-  const agents = listAgents(agentsDir);
+  // 叠加用户自建角色（~/.ao/roles 的 my/*）：手动组队可锁定自建专家，自动组队也能挑到
+  const agents = listAgents(agentsDir, true);
   return agents
     .filter(a => a.rolePath)
     .map(a => ({
@@ -71,14 +125,14 @@ export function detectLang(text: string): 'zh' | 'en' {
  * @param options.autoRun 如果 true，生成的 YAML 不需要 inputs，用户描述直接嵌入 task
  * @param options.lang 语言：'zh' 中文提示词 + agency-agents-zh，'en' 英文提示词 + agency-agents
  */
-export function buildComposeSystemPrompt(catalog: string, options?: { autoRun?: boolean; provider?: string; model?: string; lang?: 'zh' | 'en'; timeoutMs?: number }): string {
+export function buildComposeSystemPrompt(catalog: string, options?: { autoRun?: boolean; provider?: string; model?: string; lang?: 'zh' | 'en'; timeoutMs?: number; agentsDirName?: string }): string {
   const lang = options?.lang ?? 'zh';
   return lang === 'en'
     ? buildComposeSystemPromptEn(catalog, options)
     : buildComposeSystemPromptZh(catalog, options);
 }
 
-function buildComposeSystemPromptEn(catalog: string, options?: { autoRun?: boolean; provider?: string; model?: string; timeoutMs?: number }): string {
+function buildComposeSystemPromptEn(catalog: string, options?: { autoRun?: boolean; provider?: string; model?: string; timeoutMs?: number; agentsDirName?: string }): string {
   const autoRun = options?.autoRun ?? false;
   const provider = options?.provider || 'deepseek';
   const model = options?.model;
@@ -128,7 +182,7 @@ Output a complete YAML code block in this format:
 name: "Workflow Name"
 description: "One-line description"
 
-agents_dir: "agency-agents"
+agents_dir: "${options?.agentsDirName || 'agency-agents'}"
 
 llm:
   provider: ${provider}
@@ -150,12 +204,20 @@ ${autoRun ? '      Include specific information from the user\'s description' : 
       Use {{previous_output}} to reference upstream step outputs
     output: output_variable_name
     depends_on: [upstream_step_id]  # Only add when there's a dependency
+    acceptance: |  # Optional: verifiable conditions the output must satisfy (strongly recommended on the final step)
+      1. First checkable condition...
+      2. Second checkable condition...
 
   # When you need to ask the user something mid-run, use a human_input step (no role, actually pauses for input):
   - id: ask_step_id
     type: human_input
     prompt: "The specific question to ask the user, can reference {{variable_name}} from earlier steps"
     output: user_answer_variable  # the user's answer is injected downstream as this variable
+
+  # For high-stakes decisions (finance/medical/legal/spending real money), insert an approval gate (pauses until the user signs off):
+  - id: approve_step_id
+    type: approval
+    prompt: "State clearly what the user is approving, can reference {{variables}}"
 \`\`\`
 
 ## Design Principles
@@ -167,6 +229,8 @@ ${autoRun ? '      Include specific information from the user\'s description' : 
 - **Detailed tasks**: Task descriptions should be specific — tell the role what to do and what format to output
 ${inputsDesignPrinciple}
 - **Use human_input when the user needs to clarify something — don't have a role "ask" in its task**: if the task genuinely can't proceed without more info from the user (personal preference, choosing between options, a specific detail not in inputs — classic case: registration/enrollment-type requests where you must ask the user's specifics partway through), insert a \`type: human_input\` step to ask them, and feed the answer downstream as its output variable. Writing "ask the user X" inside a regular role step's task does NOT work — the engine won't actually pause, the model will just make up an answer
+- **Acceptance criteria**: give key steps — at minimum the FINAL deliverable step — an \`acceptance:\` field with 2-5 verifiable conditions the output must satisfy. Concrete and checkable ("contains X/Y/Z sections", "every recommendation states its risk"), never vague ("high quality"). It is injected into the step's prompt AND actually enforced: after the step runs, the engine checks the output against each item, and any unmet item triggers one automatic rework round — so every item must be objectively machine-checkable from the output text alone
+- **High-risk tasks need an approval gate**: for finance/investment, medical, legal, or anything spending real money / hard to reverse — insert a \`type: approval\` step before the final recommendation/execution step, so the user signs off before proceeding
 - **Final deliverable**: The last step must output the final deliverable the user wants (e.g., complete article, complete report), not review comments or suggestions. If there's a review step, it should output the revised final version, not a "list of suggestions"
 - **Clean final output (IMPORTANT)**: The LAST step's \`task\` MUST end with an explicit instruction to output ONLY the deliverable itself — no preamble/greeting, no "what I changed"/change-log, no formatting notes, no questions to the user, no suggestions to run \`ao\`/other commands, no "shall I continue?" closers. Append a line like: "⚠️ Output only the final deliverable itself — no preamble, no change-log, no meta-commentary, no questions, no tool/command suggestions." (If you genuinely need to ask the user something, use the human_input step above instead — not in the final step)
 
@@ -187,7 +251,7 @@ ${catalog}
 - Limit word count in each writing step's task (e.g., "under 500 words") to avoid overly long single-step generation times`;
 }
 
-function buildComposeSystemPromptZh(catalog: string, options?: { autoRun?: boolean; provider?: string; model?: string; timeoutMs?: number }): string {
+function buildComposeSystemPromptZh(catalog: string, options?: { autoRun?: boolean; provider?: string; model?: string; timeoutMs?: number; agentsDirName?: string }): string {
   const autoRun = options?.autoRun ?? false;
   const provider = options?.provider || 'deepseek';
   const model = options?.model;
@@ -237,7 +301,7 @@ ${autoRun ? inputsSection : ''}
 name: "工作流名称"
 description: "一句话描述"
 
-agents_dir: "agency-agents-zh"
+agents_dir: "${options?.agentsDirName || 'agency-agents-zh'}"
 
 llm:
   provider: ${provider}
@@ -259,12 +323,20 @@ ${autoRun ? '      直接包含用户需求中的具体信息' : '      使用 {
       使用 {{previous_output}} 引用上游步骤的输出
     output: output_variable_name
     depends_on: [upstream_step_id]  # 仅在有依赖时添加
+    acceptance: |  # 可选：产出必须满足的可核对验收条件（最终交付步强烈建议写）
+      1. 第一条可核对的条件…
+      2. 第二条可核对的条件…
 
   # 需要向用户询问/确认信息时，用 human_input 类型的步骤（无 role，运行到这一步会真的暂停等用户输入）：
   - id: ask_step_id
     type: human_input
     prompt: "向用户提的具体问题，可用 {{variable_name}} 引用之前的变量"
     output: user_answer_variable  # 用户的回答会作为这个变量注入下游 task
+
+  # 高风险决策（金融/医疗/法律/花真金白银）前插入 approval 闸门（暂停等用户签字放行）：
+  - id: approve_step_id
+    type: approval
+    prompt: "写清楚用户在批准什么，可引用 {{变量}}"
 \`\`\`
 
 ## 设计原则
@@ -276,6 +348,8 @@ ${autoRun ? '      直接包含用户需求中的具体信息' : '      使用 {
 - **任务详细**：task 描述要具体，告诉角色要做什么、输出什么格式
 ${inputsDesignPrinciple}
 - **需要用户澄清时用 human_input，不要指望角色在 task 里"提问"**：如果任务本质上需要用户提供额外信息才能继续（如个人偏好、多个方案里选一个、inputs 里没给的具体细节——典型例子是报名/选课/选方案类需求，中途必须问用户具体情况），插入一个 \`type: human_input\` 的步骤向用户提问，把回答作为 output 变量给下游用。普通 role 步骤的 task 里写"请问用户 XXX"是无效的——引擎不会暂停等回答，模型只会自己编一个答案
+- **验收标准**：给关键步骤——至少是最终交付步——写 \`acceptance:\` 字段，列 2-5 条产出必须满足的可核对条件。要具体可查（"包含 X/Y/Z 三节""每条建议都标注风险"），不要空话（"高质量"）。它不只注入该步 prompt——步骤跑完后引擎会**逐条真核验**，未过自动返工一轮。所以每一条都必须是仅凭产出文本就能客观判定的
+- **高风险任务要加签字闸门**：涉及金融/投资、医疗、法律，或花真金白银、难以撤销的操作——在最终建议/执行步骤之前插入 \`type: approval\` 节点，让用户签字放行后才继续（重大决策必须老板拍板）
 - **最终成品**：最后一个步骤必须输出用户想要的最终成品（如完整文章、完整报告），而不是审查意见或修改建议。如果有审校步骤，审校步骤应该直接输出修改后的定稿，而不是"修改建议列表"
 - **干净的最终产出（重要）**：最后一个步骤的 \`task\` 结尾必须显式要求"只输出成品本身"——不要开场白/寒暄、不要"我改了什么/复盘/修改说明"、不要排版备注小节、不要向用户提问或请其拍板、不要建议运行 \`ao\` 或其它命令、不要"要我继续吗"之类收尾。请在该 step 的 task 末尾追加一行类似：「⚠️ 只输出最终成品本身：不要开场白、不要复盘或说明、不要向用户提问、不要建议任何命令或后续动作。」（需要问用户时用上面的 human_input 步骤，不要在最终步骤里问）
 
@@ -373,6 +447,10 @@ export async function composeWorkflow(options: {
   pinnedRoles?: string[];
   /** 保存目录；默认 workflows/。用于把合成结果写到用户目录而非随包模板目录 */
   saveDir?: string;
+  /** R3.2 预算模式：把「轻活」步骤自动降到便宜档，省钱不掉关键质量（默认关，零回归） */
+  budget?: boolean;
+  /** 生成 YAML 里 agents_dir 的名字（多语言角色库如 "agency-agents-ko"）；缺省按 lang 用 zh/en 内置库名 */
+  agentsDirName?: string;
 }): Promise<{ yaml: string; savedPath: string; relativePath: string; warnings: string[] }> {
   const { description, agentsDir, llmConfig } = options;
   const lang = options.lang ?? detectLang(description);
@@ -397,6 +475,7 @@ export async function composeWorkflow(options: {
     model: options.llmConfig.model,
     lang,
     timeoutMs: options.timeoutMs,
+    agentsDirName: options.agentsDirName,
   });
   let userPrompt = buildComposeUserPrompt(description, lang);
   if (options.pinnedRoles?.length) {
@@ -516,7 +595,7 @@ export async function composeWorkflow(options: {
         // 重试后仍有变量引用错误 → 走 fix 链（autoFix → LLM 二次修复）
         const finalErrors = await runVariableFixChain(savedPath, second.errors, validateGenerated, llmConfig, lang);
         warnings.push(...finalErrors);
-        const fixedYaml = readFileSync(savedPath, 'utf-8').trim();
+        const fixedYaml = finalizeBudget(readFileSync(savedPath, 'utf-8').trim(), options, llmConfig.provider, savedPath, warnings);
         return { yaml: fixedYaml, savedPath, relativePath, warnings };
       }
     } catch (err) {
@@ -527,8 +606,17 @@ export async function composeWorkflow(options: {
   // 首次生成无幻觉角色 → 直接走变量 fix 链
   const finalErrors = await runVariableFixChain(savedPath, first.errors, validateGenerated, llmConfig, lang);
   warnings.push(...finalErrors);
-  const finalYaml = readFileSync(savedPath, 'utf-8').trim();
+  const finalYaml = finalizeBudget(readFileSync(savedPath, 'utf-8').trim(), options, llmConfig.provider, savedPath, warnings);
   return { yaml: finalYaml, savedPath, relativePath, warnings };
+}
+
+/** budget 模式收尾：施加分档、写回盘、把说明加入 warnings（供 CLI 回显）。非 budget 原样返回。 */
+function finalizeBudget(yamlText: string, options: { budget?: boolean }, provider: string, savedPath: string, warnings: string[]): string {
+  if (!options.budget) return yamlText;
+  const { yaml: out, note } = applyBudgetTiering(yamlText, provider);
+  if (note) warnings.push(note);
+  if (out !== yamlText) writeFileSync(savedPath, out + '\n', 'utf-8');
+  return out;
 }
 
 /**

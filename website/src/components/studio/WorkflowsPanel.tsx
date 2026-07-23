@@ -1,4 +1,6 @@
-import { Check, GitCompare, Loader2, Play, Scale, Search, Star, Workflow as WorkflowIcon, X } from "lucide-react";
+import { Check, Download, GitCompare, Loader2, Paperclip, Play, Scale, Search, Star, Trash2, Workflow as WorkflowIcon, X } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Tip } from "@/components/ui/tip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { Button } from "@/components/ui/button";
@@ -42,6 +44,36 @@ function InputsDialog({ wf, provider, onClose, onRun, onCompare }: { wf: Workflo
     return init;
   });
   const [materialize, setMaterialize] = useState(false);
+  // 从文件读入输入变量（#96）：浏览器端 FileReader 读文本填进值，不经服务器路径，
+  // 与引擎的 AO_NO_AT_FILE 防护（禁止网页按路径读服务器文件）互不冲突。
+  // 上限 200KB：值最终经 `-i k=v` 进程参数传给 CLI，留足 ARG_MAX 余量。
+  const FILE_LIMIT = 200 * 1024;
+  const [fileMeta, setFileMeta] = useState<Record<string, string>>({});
+  const [fileErr, setFileErr] = useState<string | null>(null);
+  const filePickFor = useRef<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pickFileFor = (name: string) => {
+    filePickFor.current = name;
+    fileInputRef.current?.click();
+  };
+  const onFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    const name = filePickFor.current;
+    if (!f || !name) return;
+    if (f.size > FILE_LIMIT) {
+      setFileErr(`${t.studio.workflows.inputFileTooLargePrefix}${f.name}（${Math.ceil(f.size / 1024)} KB）`);
+      return;
+    }
+    const r = new FileReader();
+    r.onload = () => {
+      setVals((p) => ({ ...p, [name]: String(r.result ?? "") }));
+      setFileMeta((p) => ({ ...p, [name]: `${f.name} · ${Math.max(1, Math.ceil(f.size / 1024))} KB` }));
+      setFileErr(null);
+    };
+    r.onerror = () => setFileErr(`${t.studio.workflows.inputFileReadFailPrefix}${f.name}`);
+    r.readAsText(f);
+  };
 
   const submit = () => {
     onRun({ kind: "workflow", title: wf.name, file: wf.file, inputs: vals, provider: provider || undefined, cast: wf.steps, materialize });
@@ -65,9 +97,22 @@ function InputsDialog({ wf, provider, onClose, onRun, onCompare }: { wf: Workflo
         <div className="mt-4 space-y-3">
           {inputs.map((inp) => (
             <label key={inp.name} className="block">
-              <span className="text-sm font-medium">
-                {inp.name}
-                {inp.required && <span className="text-red-500"> *</span>}
+              <span className="flex items-center justify-between text-sm font-medium">
+                <span>
+                  {inp.name}
+                  {inp.required && <span className="text-red-500"> *</span>}
+                </span>
+                {/* #96：识别技术文档类场景——把 .md/.txt/代码等文本文件内容一键填进输入 */}
+                <Tip label={t.studio.workflows.inputFromFile}>
+                  <button
+                    type="button"
+                    onClick={() => pickFileFor(inp.name)}
+                    className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-xs font-normal text-muted-foreground transition-colors hover:text-primary"
+                  >
+                    <Paperclip className="size-3.5" />
+                    {t.studio.workflows.inputFromFileShort}
+                  </button>
+                </Tip>
               </span>
               {inp.description && <span className="block text-xs text-muted-foreground">{inp.description}</span>}
               <textarea
@@ -76,8 +121,13 @@ function InputsDialog({ wf, provider, onClose, onRun, onCompare }: { wf: Workflo
                 rows={2}
                 className="mt-1 w-full rounded-xl border border-border/70 bg-card/60 px-3 py-2 text-sm outline-none focus:border-primary/50"
               />
+              {fileMeta[inp.name] && (
+                <span className="mt-0.5 block text-[11px] text-muted-foreground">📎 {fileMeta[inp.name]}</span>
+              )}
             </label>
           ))}
+          {fileErr && <p className="text-xs text-red-500">{fileErr}</p>}
+          <input ref={fileInputRef} type="file" accept=".md,.txt,.markdown,.json,.yaml,.yml,.csv,.log,.html,.css,.js,.ts,.tsx,.py,.java,.go,.rs,.sh,.xml,.toml,.ini,text/*" hidden onChange={onFilePicked} />
           {!inputs.length && <p className="text-sm text-muted-foreground">{t.studio.workflows.noInputsNeeded}</p>}
         </div>
         <label className="mt-4 flex cursor-pointer items-start gap-2 rounded-xl border border-border/70 bg-card/40 p-3">
@@ -120,6 +170,10 @@ export function WorkflowsPanel({ provider, onRun, demo, onInstallPrompt }: { pro
   const [compare, setCompare] = useState<Workflow[] | null>(null);
   const [baseline, setBaseline] = useState<{ wf: Workflow; inputs: Record<string, string> } | null>(null);
   const [canvasFor, setCanvasFor] = useState<Workflow | null>(null);
+  // 删除确认框（应用内，替代 window.confirm）
+  const [confirmDel, setConfirmDel] = useState<Workflow | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [delErr, setDelErr] = useState<string | null>(null);
   // 用户自选「常用」：点星收藏（localStorage）。首次无记录时用编辑推荐(featured)做种子。
   const [favs, setFavs] = useState<Set<string>>(() => getFavWorkflows() ?? new Set());
   const seededRef = useRef(false);
@@ -164,12 +218,19 @@ export function WorkflowsPanel({ provider, onRun, demo, onInstallPrompt }: { pro
     return wfs.filter((w) => !n || (w.name + (w.description ?? "")).toLowerCase().includes(n));
   }, [wfs, q]);
 
-  // 分组：⭐ 推荐置顶，其余按类目（开发 → 内容 → 商业 → 职场 → 我的 → 其他）。治"太多、不知道用哪个"。
-  const CATEGORY_ORDER = ["开发", "内容创作", "商业 / 产品", "职场 / 学术", "我的工作流", "其他"];
+  // 分组：「我的工作流」最顶（用户自己组/存的是核心资产，按最近修改倒序，#92），
+  // 其次 ⭐ 常用，再按类目（一人公司系列置顶 → 开发 → 内容 → 商业 → 职场 → 其他）。
+  const CATEGORY_ORDER = ["一人公司", "开发", "内容创作", "商业 / 产品", "职场 / 学术", "其他"];
   const groups = useMemo(() => {
-    const fav = filtered.filter((w) => favs.has(w.file));
+    // 我的工作流排序：☆ 置顶优先（点星即钉住，代替拖拽排序——网格里拖拽换行难用，
+    // 且手动顺序和"最近修改"信号打架），其余按最近修改倒序。
+    const mine = filtered
+      .filter((w) => w.private)
+      .sort((a, b) => (favs.has(b.file) ? 1 : 0) - (favs.has(a.file) ? 1 : 0) || (b.mtime ?? 0) - (a.mtime ?? 0));
+    const fav = filtered.filter((w) => favs.has(w.file) && !w.private);
     const byCat = new Map<string, Workflow[]>();
     for (const w of filtered) {
+      if (w.private) continue; // 我的工作流只在顶部分区出现，不再混入类目
       // 收藏的也仍按类目展示一份，方便浏览；顶部「常用」组只是把它们额外置顶。
       const c = w.category || "其他";
       if (!byCat.has(c)) byCat.set(c, []);
@@ -179,7 +240,7 @@ export function WorkflowsPanel({ provider, onRun, demo, onInstallPrompt }: { pro
       const ia = CATEGORY_ORDER.indexOf(a), ib = CATEGORY_ORDER.indexOf(b);
       return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
     });
-    return { fav, cats: cats.map((c) => [c, byCat.get(c)!] as [string, Workflow[]]) };
+    return { mine, fav, cats: cats.map((c) => [c, byCat.get(c)!] as [string, Workflow[]]) };
   }, [filtered, favs]);
 
   const pickedList = Object.values(picked);
@@ -205,6 +266,60 @@ export function WorkflowsPanel({ provider, onRun, demo, onInstallPrompt }: { pro
     track("compare_open", { from: "card" });
     if (w.inputs && w.inputs.length) setInputsFor(w); // 复用输入对话框（含「对比单次」按钮）
     else setBaseline({ wf: w, inputs: {} });
+  };
+
+  // 下载 YAML 原文（#98）：拿走即可在 CLI / Claude Code / 别的机器直接用
+  const downloadOne = async (w: Workflow) => {
+    if (demo) return onInstallPrompt?.();
+    track("workflow_download", { file: w.filename });
+    try {
+      const text = await api.workflowYaml(w.file);
+      const url = URL.createObjectURL(new Blob([text], { type: "text/yaml" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = w.filename || `${w.name}.yaml`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      window.alert((lang === "en" ? "Download failed: " : "下载失败：") + (e instanceof Error ? e.message : String(e)));
+    }
+  };
+
+  // 删除用户工作流（#92）：仅 deletable（自动组队/画布保存的）；服务端再限一层目录。
+  // 确认走应用内 ConfirmDialog（原生 window.confirm 带 "127.0.0.1 显示" 抬头，观感差）。
+  const doDelete = async () => {
+    const w = confirmDel;
+    if (!w) return;
+    setDeleting(true);
+    setDelErr(null);
+    track("workflow_delete", { file: w.filename });
+    try {
+      // 文件已被外部删掉（手动清理等）→ 视为删除成功：用户要的是"让它消失"，幂等处理
+      await api.deleteWorkflow(w.file).catch((e) => {
+        if (!/not found/i.test(e instanceof Error ? e.message : String(e))) throw e;
+      });
+      setWfs((p) => p.filter((x) => x.file !== w.file));
+      setPicked((p) => {
+        if (!p[w.file]) return p;
+        const n = { ...p };
+        delete n[w.file];
+        return n;
+      });
+      setFavs((prev) => {
+        if (!prev.has(w.file)) return prev;
+        const n = new Set(prev);
+        n.delete(w.file);
+        setFavWorkflows(n);
+        return n;
+      });
+      setConfirmDel(null);
+    } catch (e) {
+      setDelErr((lang === "en" ? "Delete failed: " : "删除失败：") + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   if (loading)
@@ -240,25 +355,33 @@ export function WorkflowsPanel({ provider, onRun, demo, onInstallPrompt }: { pro
             >
               <div className="flex items-start justify-between gap-2">
                 <h3 className="flex items-center gap-1.5 font-semibold leading-snug">
-                  <button
-                    onClick={() => toggleFav(w)}
-                    title={favs.has(w.file) ? "取消收藏" : "收藏为常用"}
-                    className="shrink-0 text-muted-foreground/50 transition-colors hover:text-amber-400"
+                  <Tip
+                    label={
+                      w.private
+                        ? favs.has(w.file) ? (lang === "en" ? "Unpin" : "取消置顶") : (lang === "en" ? "Pin to top" : "置顶到最前")
+                        : favs.has(w.file) ? (lang === "en" ? "Unfavorite" : "取消收藏") : (lang === "en" ? "Add to favorites" : "收藏为常用")
+                    }
                   >
-                    <Star className={cn("size-3.5", favs.has(w.file) && "fill-amber-400 text-amber-400")} />
-                  </button>
+                    <button
+                      onClick={() => toggleFav(w)}
+                      className="shrink-0 text-muted-foreground/50 transition-colors hover:text-amber-400"
+                    >
+                      <Star className={cn("size-3.5", favs.has(w.file) && "fill-amber-400 text-amber-400")} />
+                    </button>
+                  </Tip>
                   {w.name}
                 </h3>
-                <button
-                  onClick={() => togglePick(w)}
-                  title={t.studio.workflows.checkToCompare}
-                  className={cn(
-                    "grid size-5 shrink-0 place-items-center rounded-md border transition-colors",
-                    on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background",
-                  )}
-                >
-                  {on && <Check className="size-3.5" />}
-                </button>
+                <Tip label={t.studio.workflows.checkToCompare}>
+                  <button
+                    onClick={() => togglePick(w)}
+                    className={cn(
+                      "grid size-5 shrink-0 place-items-center rounded-md border transition-colors",
+                      on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background",
+                    )}
+                  >
+                    {on && <Check className="size-3.5" />}
+                  </button>
+                </Tip>
               </div>
               {w.description && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{w.description}</p>}
               {!!(w.steps && w.steps.length) && (
@@ -268,37 +391,68 @@ export function WorkflowsPanel({ provider, onRun, demo, onInstallPrompt }: { pro
               )}
               <div className="mt-3 flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">
+                  {/* 私有工作流已独立成「我的工作流」分区，卡片上不再重复 "· 我的" 后缀 */}
                   {`${w.steps?.length ?? 0} ${t.studio.workflows.steps}`}
-                  {w.private ? ` · ${t.studio.workflows.mine}` : ""}
                 </span>
                 <div className="flex items-center gap-1.5">
-                  <Button size="sm" variant="ghost" onClick={() => (demo ? onInstallPrompt?.() : setCanvasFor(w))} title={lang === "en" ? "View as canvas" : "画布视图（可视化工作流图）"}>
-                    <WorkflowIcon className="size-3.5" />
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => compareOne(w)} title={lang === "en" ? "Compare vs single-shot" : "对比单次基线（看多智能体到底强在哪）"}>
-                    <Scale className="size-3.5" />
-                  </Button>
-                  <Button size="sm" onClick={() => runOne(w)}>
-                    <Play className="size-3.5" />
-                    {t.studio.workflows.run}
-                  </Button>
+                  <Tip label={lang === "en" ? "View as canvas" : "画布视图（可视化编辑）"}>
+                    <Button size="sm" variant="ghost" onClick={() => (demo ? onInstallPrompt?.() : setCanvasFor(w))}>
+                      <WorkflowIcon className="size-3.5" />
+                    </Button>
+                  </Tip>
+                  <Tip label={lang === "en" ? "Compare vs single-shot baseline" : "对比单次基线（多智能体强在哪）"}>
+                    <Button size="sm" variant="ghost" onClick={() => compareOne(w)}>
+                      <Scale className="size-3.5" />
+                    </Button>
+                  </Tip>
+                  <Tip label={lang === "en" ? "Download YAML" : "下载 YAML（CLI / 其他机器可用）"}>
+                    <Button size="sm" variant="ghost" onClick={() => downloadOne(w)}>
+                      <Download className="size-3.5" />
+                    </Button>
+                  </Tip>
+                  {w.deletable && !demo && (
+                    <Tip label={lang === "en" ? "Delete this workflow" : "删除此工作流"}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => { setDelErr(null); setConfirmDel(w); }}
+                        className="text-muted-foreground hover:text-red-500"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </Tip>
+                  )}
+                  <Tip label={lang === "en" ? "Run this workflow" : "运行此工作流"}>
+                    <Button size="sm" onClick={() => runOne(w)}>
+                      <Play className="size-3.5" />
+                      {t.studio.workflows.run}
+                    </Button>
+                  </Tip>
                 </div>
               </div>
             </div>
           );
         };
-        const Section = ({ title, items, star }: { title: string; items: Workflow[]; star?: boolean }) => (
+        const Section = ({ title, items, star, hint }: { title: string; items: Workflow[]; star?: boolean; hint?: string }) => (
           <section className="mt-6">
             <h2 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-muted-foreground">
               {star && <Star className="size-3.5 fill-amber-400 text-amber-400" />}
               {title}
               <span className="font-normal text-muted-foreground/60">· {items.length}</span>
+              {hint && <span className="ml-1 truncate font-normal text-xs text-muted-foreground/60">{hint}</span>}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{items.map(renderCard)}</div>
           </section>
         );
         return (
           <>
+            {groups.mine.length > 0 && (
+              <Section
+                title={lang === "en" ? "My Workflows" : "我的工作流"}
+                items={groups.mine}
+                hint={lang === "en" ? "yours — composed or saved from canvas; ☆ pins to top, otherwise newest first" : "自动组队 / 画布保存的都在这；点 ☆ 置顶，其余按最近修改排序"}
+              />
+            )}
             {groups.fav.length > 0 && <Section title={lang === "en" ? "Favorites" : "常用（点 ☆ 收藏）"} items={groups.fav} star />}
             {groups.cats.map(([c, items]) => <Section key={c} title={c} items={items} />)}
             {filtered.length === 0 && <p className="mt-10 text-center text-sm text-muted-foreground">{lang === "en" ? "No matching workflows" : "没有匹配的工作流"}</p>}
@@ -333,6 +487,23 @@ export function WorkflowsPanel({ provider, onRun, demo, onInstallPrompt }: { pro
           onClose={() => setInputsFor(null)}
           onRun={onRun}
           onCompare={(inputs) => setBaseline({ wf: inputsFor, inputs })}
+        />
+      )}
+      {confirmDel && (
+        <ConfirmDialog
+          danger
+          title={lang === "en" ? "Delete workflow" : "删除工作流"}
+          body={
+            lang === "en"
+              ? `Delete "${confirmDel.name}"? The YAML file will be removed from disk. This cannot be undone.`
+              : `确定删除「${confirmDel.name}」？其 YAML 文件将从磁盘移除，此操作不可恢复。`
+          }
+          confirmLabel={lang === "en" ? "Delete" : "删除"}
+          cancelLabel={lang === "en" ? "Cancel" : "取消"}
+          busy={deleting}
+          error={delErr}
+          onConfirm={doDelete}
+          onClose={() => { setConfirmDel(null); setDelErr(null); }}
         />
       )}
       {compare && <CompareOverlay workflows={compare} provider={provider} onClose={() => setCompare(null)} />}

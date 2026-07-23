@@ -1,0 +1,101 @@
+name: "一人公司·做内容"
+description: "一个人做账号不孤军奋战：用户研究员找痛点、策划出选题、编导写脚本、运营排日历——你只管出镜"
+category: "一人公司"
+featured: true
+
+agents_dir: "agency-agents-zh"
+
+llm:
+  provider: deepseek
+  model: deepseek-chat
+
+concurrency: 2
+
+inputs:
+  - name: direction
+    description: "账号方向（如：给职场新人讲 AI 工具的抖音号）"
+    required: true
+
+steps:
+  - id: ceo_position
+    role: "strategy/nexus-strategy"
+    name: "老板"
+    emoji: "👔"
+    task: |
+      你是这家一人内容公司的 CEO。账号方向：{{direction}}
+
+      定调：
+      1. 账号一句话定位（对谁、说什么、凭什么听你的）
+      2. 差异化：同类账号一抓一把，我们不一样在哪
+      3. 三个月后的成功画面（粉丝量/互动/变现路径）
+    output: position
+
+  - id: audience
+    role: "design/design-ux-researcher"
+    name: "用户研究员"
+    emoji: "🔍"
+    task: |
+      账号定位：{{position}}
+
+      作为用户研究员，输出观众洞察：
+      1. 两类典型观众画像（年龄、职业、刷视频的时段和心态）
+      2. 他们的 5 个真实痛点/爽点（要有场景感）
+      3. 什么样的开头 3 秒能留住他们
+    output: audience_insight
+    depends_on: [ceo_position]
+
+  - id: topics
+    role: "marketing/marketing-content-creator"
+    name: "内容策划"
+    emoji: "✏️"
+    task: |
+      定位：{{position}}
+      观众洞察：{{audience_insight}}
+
+      作为内容策划，出首月选题库：
+      1. 10 个选题，每个带标题钩子（观众为什么点进来）
+      2. 每个选题标注类型（干货/共鸣/争议/热点）
+      3. 标注前 3 条冷启动选题及理由
+    acceptance: |
+      1. 恰好 10 个选题，每个都有具体标题而不是主题方向
+      2. 每个标题里有明确的钩子（数字/冲突/悬念/利益点至少一种）
+      3. 指明了前 3 条冷启动选题
+    output: topic_list
+    depends_on: [audience]
+
+  - id: script
+    role: "marketing/marketing-douyin-strategist"
+    name: "编导"
+    emoji: "🎬"
+    task: |
+      选题库：{{topic_list}}
+
+      作为编导，把冷启动第 1 条选题写成完整脚本：
+      1. 逐句口播稿（含开头 3 秒钩子）
+      2. 分镜提示（画面/字幕/节奏）
+      3. 时长控制在 60 秒内
+    output: first_script
+    depends_on: [topics]
+
+  - id: calendar
+    role: "marketing/marketing-social-media-strategist"
+    name: "运营"
+    emoji: "📆"
+    task: |
+      定位：{{position}}
+      选题库：{{topic_list}}
+      首条脚本：{{first_script}}
+
+      作为运营，输出《首月作战日历》：
+      ## 发布节奏（每周几更、几点发、为什么）
+      ## 四周排期表（哪天发哪个选题）
+      ## 每周数据复盘要看的 3 个指标及调整规则
+      ## 首条视频发布 checklist
+
+      ⚠️ 只输出最终成品本身：不要开场白、不要复盘或说明、不要向用户提问、不要建议任何命令或后续动作。
+    acceptance: |
+      1. 四个章节齐全
+      2. 排期表具体到日期槽位和选题标题
+      3. 每个指标都写了"低于多少就怎么调"的规则
+    output: content_calendar
+    depends_on: [script]

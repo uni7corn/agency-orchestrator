@@ -198,6 +198,7 @@ const dict: Dict = {
     init --provider <p> --model <m>   写入 .env 默认配置（支持 --base-url, --api-key）
     compose "描述"                    AI 智能编排工作流（一句话生成 YAML）
     compose "描述" --run              生成并立即运行（一句话出结果）
+    doctor [--fix]                    环境自检：provider/凭证/CLI/系统 Claude Code；--fix 一键修复被写坏的 ~/.claude
     team save <workflow.yaml>         把角色阵容存成可复用团队 (Loadout)
     team list / show / rm             管理已保存的团队
     run --team <名字> "任务"           用已保存的团队跑新任务（锁定阵容）
@@ -215,6 +216,8 @@ const dict: Dict = {
     upgrade [--check]                 自我升级到最新版（--check 只检查不安装）
 
   自带私有角色：设 AO_AGENTS_DIR=/你的角色目录，run/compose/roles/web 全局生效。
+  自建角色（叠加）：放 ~/.ao/roles/<id>.md（或设 AO_USER_ROLES_DIR），工作流里用 my/<id> 引用，
+              与内置角色库共存；Studio「角色组队 → 我的」可视化增删。
   固定全局目录：设 AO_HOME=~/.ao（或任意目录），产物 ao-output / 生成的工作流都落到那里，
               不再散在执行目录；也可单独用 AO_OUTPUT_DIR / AO_WORKFLOWS_DIR 指定。
 
@@ -265,6 +268,7 @@ const dict: Dict = {
     init --provider <p> --model <m>   Write default config to .env (supports --base-url, --api-key)
     compose "desc"                    AI-compose a workflow from one sentence
     compose "desc" --run              Compose and run immediately
+    doctor [--fix]                    Self-check: provider/creds/CLI/system Claude Code; --fix repairs a broken ~/.claude
     team save <workflow.yaml>         Save a role line-up as a reusable team (Loadout)
     team list / show / rm             Manage saved teams
     run --team <name> "task"          Run a new task with a saved team (locked line-up)
@@ -281,6 +285,8 @@ const dict: Dict = {
     upgrade [--check]                 Self-update to the latest version (--check: check only)
 
   Bring your own roles: set AO_AGENTS_DIR=/your/roles/dir — applies to run/compose/roles/web.
+  Your own roles (additive): drop ~/.ao/roles/<id>.md (or set AO_USER_ROLES_DIR) and reference
+              them as my/<id> — they coexist with the built-in library; manage visually in Studio.
   Fixed global dir: set AO_HOME=~/.ao (or any dir) so outputs / generated workflows land there
               instead of scattering across CWD; or set AO_OUTPUT_DIR / AO_WORKFLOWS_DIR individually.
 

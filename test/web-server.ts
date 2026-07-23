@@ -34,7 +34,7 @@ let server: ChildProcess | null = null;
 
 try {
   server = spawn(process.execPath, [resolve('web/server.js')], {
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', AO_NODE: process.execPath, AO_DATA_DIR: dataDir },
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', AO_NODE: process.execPath, AO_DATA_DIR: dataDir, AO_USER_ROLES_DIR: join(dataDir, 'my-roles') },
     stdio: 'ignore',
   });
 
@@ -87,15 +87,97 @@ try {
       ],
       edges: [{ id: 'a->b', source: 'a', target: 'b' }],
     };
-    assert(await post(base, '/api/workflows/graph', okBody) === 200, '/api/workflows/graph 合法图 → 200 保存');
+    const graphSave = await fetch(base + '/api/workflows/graph', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(okBody) });
+    assert(graphSave.status === 200, '/api/workflows/graph 合法图 → 200 保存');
+    const savedFile: string = graphSave.status === 200 ? (await graphSave.json()).file : '';
     // QA #6：缺 edges 数组 → 400（不静默清空依赖）
     assert(await post(base, '/api/workflows/graph', { name: 't', baseYaml, nodes: okBody.nodes }) === 400, '/api/workflows/graph 缺 edges → 400');
     // QA #14：节点缺 role → 400
     const rolelessBody = { name: 't', baseYaml, edges: [], nodes: [{ id: 'a', position: { x: 0, y: 0 }, data: { id: 'a', task: 't1' } }] };
     assert(await post(base, '/api/workflows/graph', rolelessBody) === 400, '/api/workflows/graph 节点缺 role → 400');
+    // 但 approval / human_input 节点无 role 是合法形态，不能被 QA #14 守卫误杀
+    const approvalBody = {
+      name: 'canvas-approval-ok', baseYaml, edges: [{ id: 'a->gate', source: 'a', target: 'gate' }],
+      nodes: [
+        { id: 'a', position: { x: 0, y: 0 }, data: { id: 'a', role: 'x/y', task: 't1', output: 'out_a' } },
+        { id: 'gate', position: { x: 200, y: 0 }, data: { id: 'gate', type: 'approval', prompt: '确认继续？' } },
+      ],
+    };
+    const approvalSave = await fetch(base + '/api/workflows/graph', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(approvalBody) });
+    assert(approvalSave.status === 200, '/api/workflows/graph approval 节点无 role → 200 可保存');
+    if (approvalSave.status === 200) {
+      const f = (await approvalSave.json()).file;
+      await fetch(base + '/api/workflows?file=' + encodeURIComponent(f), { method: 'DELETE' });
+    }
     // 成环：a → b → a，validateWorkflow 应拒
     const cycleBody = { ...okBody, edges: [{ id: 'a->b', source: 'a', target: 'b' }, { id: 'b->a', source: 'b', target: 'a' }] };
     assert(await post(base, '/api/workflows/graph', cycleBody) === 400, '/api/workflows/graph 成环 → 400 被校验拦截');
+    // #91：变量名对但缺依赖边（b 用 {{out_a}} 却没连 a→b）→ 保存时确定性补边，200 + autoFixes
+    const missingEdgeBody = {
+      name: 'canvas-autofix-test', baseYaml,
+      nodes: [
+        { id: 'a', position: { x: 0, y: 0 }, data: { id: 'a', role: 'x/y', task: 't1', output: 'out_a' } },
+        { id: 'b', position: { x: 200, y: 0 }, data: { id: 'b', role: 'x/y', task: 'use {{out_a}}', output: 'out_b' } },
+      ],
+      edges: [],
+    };
+    const fixSave = await fetch(base + '/api/workflows/graph', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(missingEdgeBody) });
+    const fixBody = fixSave.status === 200 ? await fixSave.json() : { autoFixes: [] };
+    assert(fixSave.status === 200, '/api/workflows/graph 缺依赖边 → 200 自动补边保存(#91)');
+    assert(Array.isArray(fixBody.autoFixes) && fixBody.autoFixes.length === 1 && fixBody.autoFixes[0].step === 'b' && fixBody.autoFixes[0].addedDep === 'a', 'autoFixes 返回补边明细 b←a');
+    if (fixBody.file) await fetch(base + '/api/workflows?file=' + encodeURIComponent(fixBody.file), { method: 'DELETE' });
+
+    // ── 用户工作流删除 DELETE /api/workflows（#92）──
+    const del = (file: string) => fetch(base + '/api/workflows?file=' + encodeURIComponent(file), { method: 'DELETE' });
+    assert((await del('../../../../etc/passwd')).status === 403, 'DELETE /api/workflows 路径穿越 → 403');
+    const builtin = (wfs as Array<{ file: string; private?: boolean }>).find((w) => !w.private)?.file;
+    if (builtin) assert((await del(builtin)).status === 403, 'DELETE /api/workflows 内置模板 → 403 不可删');
+    if (savedFile) {
+      const listed = (await (await fetch(base + '/api/workflows')).json()) as Array<{ file: string; private?: boolean; deletable?: boolean; mtime?: number }>;
+      const mine = listed.find((w) => w.file === savedFile);
+      assert(!!mine && mine.private === true && mine.deletable === true && typeof mine.mtime === 'number', '用户工作流带 private/deletable/mtime 标记');
+      assert((await del(savedFile)).status === 200, 'DELETE /api/workflows 用户工作流 → 200 删除');
+      assert((await del(savedFile)).status === 404, 'DELETE /api/workflows 已删文件再删 → 404');
+    }
+
+    // ── 我的角色（用户自建）POST/DELETE /api/roles/my ──
+    assert(await post(base, '/api/roles/my', { name: '测试专家' }) === 400, 'POST /api/roles/my 缺 systemPrompt → 400');
+    const createRes = await fetch(base + '/api/roles/my', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '测试专家', description: '一句话描述', systemPrompt: '你是一位测试专家。' }) });
+    const created = await createRes.json();
+    assert(createRes.status === 200 && created.role === `my/${created.id}`, `POST /api/roles/my → 200 创建(${created.role})`);
+    const rolesWithMy = (await (await fetch(base + '/api/roles')).json()) as Array<{ id: string; category: string; custom?: boolean; name: string }>;
+    const myRole = rolesWithMy.find((r) => r.category === 'my' && r.id === created.id);
+    assert(!!myRole && myRole.custom === true && myRole.name === '测试专家', '/api/roles 列表含「我的」分类且带 custom 标记');
+    const detail = await (await fetch(base + `/api/roles/my/${created.id}`)).json();
+    assert(detail.content === '你是一位测试专家。', 'GET /api/roles/my/:id 返回 system prompt 正文');
+    const upd = await fetch(base + `/api/roles/my/${created.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '测试专家改', systemPrompt: '你是改过的测试专家。' }) });
+    assert(upd.status === 200 && (await upd.json()).name === '测试专家改', 'PUT /api/roles/my/:id → 200 编辑');
+    const updDetail = await (await fetch(base + `/api/roles/my/${created.id}`)).json();
+    assert(updDetail.name === '测试专家改' && updDetail.content === '你是改过的测试专家。' && updDetail.description === '一句话描述', 'PUT 字段级合并:改了名字与正文,没传的描述保留');
+    assert((await fetch(base + '/api/roles/my/nope-xyz', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status === 404, 'PUT 不存在的角色 → 404');
+    assert((await fetch(base + '/api/roles/my/..%2F..%2Fetc%2Fpasswd', { method: 'DELETE' })).status === 403, 'DELETE /api/roles/my 路径穿越 → 403');
+    assert((await fetch(base + `/api/roles/my/${created.id}`, { method: 'DELETE' })).status === 200, 'DELETE /api/roles/my/:id → 200 删除');
+    assert((await fetch(base + `/api/roles/my/${created.id}`, { method: 'DELETE' })).status === 404, 'DELETE 已删角色再删 → 404');
+
+    // ── 多语言角色库(roleLibs / ?lang=<libId>) ──
+    const cfgLibs = (await (await fetch(base + '/api/config')).json()).roleLibs as Array<{ id: string; label: string }>;
+    assert(Array.isArray(cfgLibs) && cfgLibs.some((l) => l.id === 'zh') && cfgLibs.some((l) => l.id === 'en'), '/api/config roleLibs 至少含 zh/en');
+    if (cfgLibs.some((l) => l.id === 'ko')) {
+      const koRoles = (await (await fetch(base + '/api/roles?lang=ko')).json()) as Array<{ id: string; name: string }>;
+      assert(koRoles.length > 100, `?lang=ko 返回语言包角色(${koRoles.length})`);
+      assert(koRoles.some((r) => r.id === 'marketing-coupang-seller'), 'ko 库含韩国市场原创角色');
+    }
+    const fallback = (await (await fetch(base + '/api/roles?lang=hax')).json()) as unknown[];
+    assert(Array.isArray(fallback) && fallback.length > 0, '未知 lang 回落 zh 而不是报错');
+
+    // ── 嵌套子目录角色(递归枚举 + 带斜杠 id 的详情) ──
+    const zhRoles = (await (await fetch(base + '/api/roles')).json()) as Array<{ id: string; category: string }>;
+    const nested = zhRoles.find((r) => r.id.includes('/'));
+    assert(!!nested, `角色列表含嵌套子目录角色(${zhRoles.length} 总数)`);
+    if (nested) {
+      const nd = await (await fetch(base + `/api/roles/${encodeURIComponent(nested.category)}/${encodeURIComponent(nested.id)}`)).json();
+      assert(!!nd.content, '嵌套角色详情(带 %2F 的 id) → 200 + 正文');
+    }
 
     // ── 报告导出 /api/export ──
     assert(await post(base, '/api/export', { format: 'docx' }) === 400, '/api/export 缺 markdown → 400');

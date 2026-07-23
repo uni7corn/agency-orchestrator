@@ -13,6 +13,7 @@ const buttonVariants = cva(
         ghost: "hover:bg-muted text-foreground",
         gold: "bg-gold text-gold-foreground shadow-lg shadow-gold/25 hover:brightness-105 hover:-translate-y-0.5",
         secondary: "bg-secondary text-secondary-foreground hover:brightness-105",
+        destructive: "bg-red-600 text-white shadow-lg shadow-red-600/25 hover:brightness-110 hover:-translate-y-0.5",
       },
       size: {
         default: "h-11 px-5",

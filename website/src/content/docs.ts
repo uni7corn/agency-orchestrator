@@ -35,15 +35,15 @@ export const docGroups: DocGroup[] = [
           {
             heading: { zh: "什么是 Agency Orchestrator", en: "What is Agency Orchestrator" },
             body: {
-              zh: "Agency Orchestrator（`ao`）是 **agency-agents 专家角色库的编排器**。\n\nagency-agents 里有 216 位打磨好的 AI 专家——营销、工程、设计、产品、财务、法律、销售、学术……每一位都是一段精调过的系统提示词，让模型稳定地以该领域专家的身份输出。但单独一位专家只能解决一个环节；真实任务往往要**多位专家分工协作**：研究员先调研、分析师再拆解、撰稿人成文、收口角色把关。\n\nAO 就是把这些专家组队起来的那一层：你用一句话或一份 YAML 描述需求，AO 自动选出合适的专家、按依赖关系排成 DAG、并行执行、在专家之间传递产出，几分钟交付一份完整方案。**你来用 agency-agents 的专家，AO 让「用专家」这件事零门槛。**",
-              en: "Agency Orchestrator (`ao`) is **the orchestrator for the agency-agents expert library**.\n\nagency-agents ships 216 finely-tuned AI experts — marketing, engineering, design, product, finance, legal, sales, academic… each a carefully crafted system prompt that makes a model reliably act as that domain expert. But one expert only handles one step; real tasks need **several experts working together**: a researcher scopes it, an analyst breaks it down, a writer drafts it, a finalizer reviews.\n\nAO is the layer that teams them up: describe your need in one sentence or a YAML file, and AO picks the right experts, arranges them into a DAG by dependency, runs them in parallel, passes outputs between them, and delivers a full plan in minutes. **You come to use agency-agents' experts; AO makes using them effortless.**",
+              zh: "Agency Orchestrator（`ao`）是 **agency-agents 专家角色库的编排器**。\n\nagency-agents 里有 267 位打磨好的 AI 专家——营销、工程、设计、产品、财务、法律、销售、学术……每一位都是一段精调过的系统提示词，让模型稳定地以该领域专家的身份输出。但单独一位专家只能解决一个环节；真实任务往往要**多位专家分工协作**：研究员先调研、分析师再拆解、撰稿人成文、收口角色把关。\n\nAO 就是把这些专家组队起来的那一层：你用一句话或一份 YAML 描述需求，AO 自动选出合适的专家、按依赖关系排成 DAG、并行执行、在专家之间传递产出，几分钟交付一份完整方案。**你来用 agency-agents 的专家，AO 让「用专家」这件事零门槛。**",
+              en: "Agency Orchestrator (`ao`) is **the orchestrator for the agency-agents expert library**.\n\nagency-agents ships 267 finely-tuned AI experts — marketing, engineering, design, product, finance, legal, sales, academic… each a carefully crafted system prompt that makes a model reliably act as that domain expert. But one expert only handles one step; real tasks need **several experts working together**: a researcher scopes it, an analyst breaks it down, a writer drafts it, a finalizer reviews.\n\nAO is the layer that teams them up: describe your need in one sentence or a YAML file, and AO picks the right experts, arranges them into a DAG by dependency, runs them in parallel, passes outputs between them, and delivers a full plan in minutes. **You come to use agency-agents' experts; AO makes using them effortless.**",
             },
           },
           {
             heading: { zh: "解决什么问题", en: "What problems it solves" },
             body: {
-              zh: "- **让 agency-agents 的专家真正协作起来**：单个专家只解决一个环节，AO 让多位专家按 DAG 分工、并行、交接\n- 单次 prompt 难以覆盖复杂任务，多专家分工 + 收口质量更高\n- 不想写编排代码：用 YAML 声明依赖，引擎自动并行；或一句话 `compose` 自动选专家、生成并运行\n- 216 位专家覆盖营销、工程、设计、产品、财务、法律、销售、学术等领域\n- 10 个 provider，7 个免 API key",
-              en: "- **Make agency-agents' experts actually collaborate**: one expert handles one step; AO has many experts divide work, run in parallel, and hand off via a DAG\n- A single prompt struggles with complex tasks; multi-expert division + a finalizer yields higher quality\n- No orchestration code: declare dependencies in YAML, or `compose` from one sentence to auto-pick experts, generate and run\n- 216 experts across marketing, engineering, design, product, finance, legal, sales, academic, and more\n- 10 providers, 7 of them need no API key",
+              zh: "- **让 agency-agents 的专家真正协作起来**：单个专家只解决一个环节，AO 让多位专家按 DAG 分工、并行、交接\n- 单次 prompt 难以覆盖复杂任务，多专家分工 + 收口质量更高\n- 不想写编排代码：用 YAML 声明依赖，引擎自动并行；或一句话 `compose` 自动选专家、生成并运行\n- 267 位专家覆盖营销、工程、设计、产品、财务、法律、销售、学术等领域\n- 11 个 provider，7 个免 API key",
+              en: "- **Make agency-agents' experts actually collaborate**: one expert handles one step; AO has many experts divide work, run in parallel, and hand off via a DAG\n- A single prompt struggles with complex tasks; multi-expert division + a finalizer yields higher quality\n- No orchestration code: declare dependencies in YAML, or `compose` from one sentence to auto-pick experts, generate and run\n- 267 experts across marketing, engineering, design, product, finance, legal, sales, academic, and more\n- 11 providers, 7 of them need no API key",
             },
           },
           {
@@ -70,10 +70,10 @@ export const docGroups: DocGroup[] = [
           {
             heading: { zh: "专家库随装随用，无需单独安装", en: "Experts come bundled — no separate install" },
             body: {
-              zh: "**装 AO 就自带 agency-agents 专家库**——它是 AO 的依赖（`agency-agents-zh`），`npm i -g` 时会一并装好，你不用再单独安装或克隆。`ao roles` 能列出 216 位专家，就说明专家库已就绪。需要升级时重新全局安装即可：",
-              en: "**Installing AO bundles the agency-agents library** — it's a dependency (`agency-agents-zh`) installed automatically by `npm i -g`, so you never install or clone it separately. If `ao roles` lists all 216 experts, the library is ready. To upgrade, reinstall globally:",
+              zh: "**装 AO 就自带 agency-agents 专家库**——它是 AO 的依赖（`agency-agents-zh`），`npm i -g` 时会一并装好，你不用再单独安装或克隆。`ao roles` 能列出 267 位专家，就说明专家库已就绪。需要升级时重新全局安装即可：",
+              en: "**Installing AO bundles the agency-agents library** — it's a dependency (`agency-agents-zh`) installed automatically by `npm i -g`, so you never install or clone it separately. If `ao roles` lists all 267 experts, the library is ready. To upgrade, reinstall globally:",
             },
-            code: "ao roles            # 验证专家库（应列出 216 位专家）\nnpm i -g agency-orchestrator@latest   # 升级",
+            code: "ao roles            # 验证专家库（应列出 267 位专家）\nnpm i -g agency-orchestrator@latest   # 升级",
           },
           {
             heading: { zh: "无需 API Key 起步", en: "Start without an API key" },
@@ -114,8 +114,8 @@ export const docGroups: DocGroup[] = [
           {
             heading: { zh: "为什么 compose 有效", en: "Why compose works" },
             body: {
-              zh: "compose 底层也是一次 LLM 调用——它读取 216 位专家的能力清单，按你的需求挑人、排依赖。生成质量取决于底层模型能力，建议用有能力的模型跑 compose。生成的 DAG 是**确定性**执行的：谁先谁后、谁并行由依赖图决定，不靠模型即兴。",
-              en: "compose is itself an LLM call — it reads the 216 experts' capabilities and picks/sequences them for your need. Generation quality depends on the underlying model, so use a capable one for compose. The generated DAG executes **deterministically**: order and parallelism come from the dependency graph, not improvisation.",
+              zh: "compose 底层也是一次 LLM 调用——它读取 267 位专家的能力清单，按你的需求挑人、排依赖。生成质量取决于底层模型能力，建议用有能力的模型跑 compose。生成的 DAG 是**确定性**执行的：谁先谁后、谁并行由依赖图决定，不靠模型即兴。",
+              en: "compose is itself an LLM call — it reads the 267 experts' capabilities and picks/sequences them for your need. Generation quality depends on the underlying model, so use a capable one for compose. The generated DAG executes **deterministically**: order and parallelism come from the dependency graph, not improvisation.",
             },
           },
         ],
@@ -183,8 +183,8 @@ steps:
           {
             heading: { zh: "字段说明", en: "Field reference" },
             body: {
-              zh: "- `id`：步骤唯一标识，被 `depends_on` 引用\n- `role`：专家，格式 `category/role-name`\n- `task`：任务描述，可用 `{{变量}}` 插值\n- `output`：把本步产出存成变量，供下游引用\n- `depends_on`：依赖的步骤数组，决定 DAG\n- `condition`：条件执行（见「循环与条件」）\n- `loop`：循环块（见「循环与条件」）",
-              en: "- `id`: unique step id, referenced by `depends_on`\n- `role`: an expert, as `category/role-name`\n- `task`: the task, with `{{var}}` interpolation\n- `output`: save this step's output as a variable for downstream\n- `depends_on`: array of step deps, defines the DAG\n- `condition`: conditional execution (see Loops & conditions)\n- `loop`: loop block (see Loops & conditions)",
+              zh: "- `id`：步骤唯一标识，被 `depends_on` 引用\n- `role`：专家，格式 `category/role-name`\n- `task`：任务描述，可用 `{{变量}}` 插值\n- `output`：把本步产出存成变量，供下游引用\n- `depends_on`：依赖的步骤数组，决定 DAG\n- `condition`：条件执行（见「循环与条件」）\n- `loop`：循环块（见「循环与条件」）\n- `acceptance`：验收标准，跑完自动核验（见「验收与自动核验」）\n- `verify: false`：本步关闭自动核验",
+              en: "- `id`: unique step id, referenced by `depends_on`\n- `role`: an expert, as `category/role-name`\n- `task`: the task, with `{{var}}` interpolation\n- `output`: save this step's output as a variable for downstream\n- `depends_on`: array of step deps, defines the DAG\n- `condition`: conditional execution (see Loops & conditions)\n- `loop`: loop block (see Loops & conditions)\n- `acceptance`: acceptance criteria, auto-verified after the step runs (see Acceptance & auto-verify)\n- `verify: false`: opt this step out of auto-verify",
             },
           },
           {
@@ -309,6 +309,42 @@ steps:
           },
         ],
       },
+      {
+        slug: "acceptance",
+        title: { zh: "验收与自动核验", en: "Acceptance & auto-verify" },
+        sections: [
+          {
+            heading: { zh: "acceptance 字段", en: "The acceptance field" },
+            body: {
+              zh: "给关键步骤（至少是最终交付步）写 `acceptance:`，列 2-5 条产出必须满足的**可核对**条件——要具体可查（「包含 X/Y/Z 三节」「每条建议标注风险」），不要空话（「高质量」）。它会注入该步 prompt 末尾，并在 `--compare` 盲评时作为评分锚点。",
+              en: "Give key steps (at minimum the final deliverable step) an `acceptance:` field: 2-5 **checkable** conditions the output must satisfy — concrete ('contains sections X/Y/Z', 'every recommendation states its risk'), never vague ('high quality'). It is injected at the step's prompt tail and anchors the blind judge in `--compare`.",
+            },
+            code: `  - id: write_report
+    role: "product/product-analyst"
+    task: "基于 {{research}} 写投资分析报告"
+    acceptance: |
+      1. 包含「机会 / 风险 / 建议」三节
+      2. 每条建议都标注风险等级
+      3. 结尾给出明确的行动清单
+    output: report`,
+          },
+          {
+            heading: { zh: "自动核验 + 一轮自动返工（默认开）", en: "Auto-verify + one rework round (on by default)" },
+            body: {
+              zh: "写了 `acceptance` 的步骤跑完后，引擎用同一 provider **逐条核对**验收标准；未过则把「上一版产出 + 未满足条目」交回同一专家针对性返工一轮再复核。验收从「注入 prompt 的嘱咐」变成「跑完真的有人对着查」的机制。\n\n验收不过是**质量信号**而非执行错误：步骤不会因此失败，最坏得到带 ⚠️ 标记的返工版照常流向下游；核验器自身故障会自动跳过核验，不拦产线。核验状态显示在 CLI 结果行、`summary.md`、`metadata.json` 与 Studio 的运行/历史面板。",
+              en: "After a step with `acceptance` runs, the engine **checks each item** with the same provider; on failure it hands the previous output + unmet items back to the same expert for one targeted rework round, then re-checks. Acceptance goes from 'a note injected into the prompt' to 'someone actually checks after the run'.\n\nA failed check is a **quality signal**, not an execution error: the step never fails because of it — worst case a ⚠️-flagged reworked version flows downstream as usual; if the verifier itself errors, verification is skipped without blocking the pipeline. Verification status shows in the CLI result line, `summary.md`, `metadata.json`, and the Studio run/history panels.",
+            },
+          },
+          {
+            heading: { zh: "三级开关", en: "Three-level switch" },
+            body: {
+              zh: "优先级从高到低：CLI `--verify` / `--no-verify` > YAML 顶层 `verify:` > 步骤级 `verify: false`。默认开，只影响写了 `acceptance` 的步骤；核验/返工消耗如实计入该步 token 成本（单次核验是 max_tokens 500 的小额调用）。",
+              en: "Priority high to low: CLI `--verify` / `--no-verify` > top-level `verify:` in YAML > per-step `verify: false`. On by default and only affects steps that declare `acceptance`; verify/rework usage counts toward that step's token cost (a single check is a small max_tokens-500 call).",
+            },
+            code: "ao run workflow.yaml --no-verify   # 本次运行关闭自动核验",
+          },
+        ],
+      },
     ],
   },
   {
@@ -322,10 +358,10 @@ steps:
           {
             heading: { zh: "agency-agents 是什么", en: "What is agency-agents" },
             body: {
-              zh: "agency-agents 是一套开源的 **AI 专家角色库**，收录了 216 位打磨好的专家。每一位专家是一个带 frontmatter 的 `.md` 文件，核心是一段精心调过的系统提示词——它约束模型的身份、视角、输出格式与专业边界，让模型稳定地以「市场研究员」「资深编辑」「财务分析师」「风控专家」等真实身份产出，而不是泛泛而谈的通用助手。\n\n角色按领域分门别类，覆盖营销、工程、设计、产品、财务、法律、销售、学术、项目管理、客服、测试等领域。AO 默认从 `node_modules/agency-agents-zh`（或仓库同级目录）加载这套库。",
-              en: "agency-agents is an open-source **library of AI expert roles** — 216 finely-tuned experts. Each expert is a `.md` file with frontmatter, centered on a carefully tuned system prompt that fixes the model's identity, perspective, output format, and domain boundaries — so the model reliably acts as a 'trend researcher', 'technical writer', 'financial analyst', 'narratologist', etc., instead of a generic assistant.\n\nRoles are organized by domain across marketing, engineering, design, product, finance, legal, sales, academic, project management, support, testing, and more. AO loads this library from `node_modules/agency-agents-zh` (or a sibling repo) by default.",
+              zh: "agency-agents 是一套开源的 **AI 专家角色库**，收录了 267 位打磨好的专家。每一位专家是一个带 frontmatter 的 `.md` 文件，核心是一段精心调过的系统提示词——它约束模型的身份、视角、输出格式与专业边界，让模型稳定地以「市场研究员」「资深编辑」「财务分析师」「风控专家」等真实身份产出，而不是泛泛而谈的通用助手。\n\n角色按领域分门别类，覆盖营销、工程、设计、产品、财务、法律、销售、学术、项目管理、客服、测试等领域。AO 默认从 `node_modules/agency-agents-zh`（或仓库同级目录）加载这套库。",
+              en: "agency-agents is an open-source **library of AI expert roles** — 267 finely-tuned experts. Each expert is a `.md` file with frontmatter, centered on a carefully tuned system prompt that fixes the model's identity, perspective, output format, and domain boundaries — so the model reliably acts as a 'trend researcher', 'technical writer', 'financial analyst', 'narratologist', etc., instead of a generic assistant.\n\nRoles are organized by domain across marketing, engineering, design, product, finance, legal, sales, academic, project management, support, testing, and more. AO loads this library from `node_modules/agency-agents-zh` (or a sibling repo) by default.",
             },
-            code: "ao roles   # 列出全部 216 位专家",
+            code: "ao roles   # 列出全部 267 位专家",
           },
           {
             heading: { zh: "AO 与 agency-agents 的关系", en: "How AO and agency-agents relate" },
@@ -337,8 +373,8 @@ steps:
           {
             heading: { zh: "找专家：ao roles 搜索", en: "Find an expert: ao roles search" },
             body: {
-              zh: "216 位专家不用一个个翻。`ao roles <关键词>`（或 `--search`）会在 **agency-agents 全库**里按 角色路径 / 名称 / 描述 搜索（不区分大小写），秒定位你要的专家：",
-              en: "No need to scroll all 216. `ao roles <keyword>` (or `--search`) searches the **entire agency-agents library** by path / name / description (case-insensitive) to find the expert you need:",
+              zh: "267 位专家不用一个个翻。`ao roles <关键词>`（或 `--search`）会在 **agency-agents 全库**里按 角色路径 / 名称 / 描述 搜索（不区分大小写），秒定位你要的专家：",
+              en: "No need to scroll all 267. `ao roles <keyword>` (or `--search`) searches the **entire agency-agents library** by path / name / description (case-insensitive) to find the expert you need:",
             },
             code: "ao roles seo        # 找 SEO 相关专家\nao roles 财务       # 找财务相关专家",
           },
@@ -369,25 +405,25 @@ steps:
         title: { zh: "Provider 配置", en: "Provider config" },
         sections: [
           {
-            heading: { zh: "10 个 provider", en: "10 providers" },
+            heading: { zh: "11 个 provider", en: "11 providers" },
             body: {
-              zh: "顶层 `llm` 指定 provider 与 model，或用 `--provider` 临时覆盖。支持 DeepSeek / Claude / OpenAI / Gemini / Ollama 等 10 个 provider，按需求选择。",
-              en: "Set provider/model at top-level `llm`, or override with `--provider`. 10 providers supported (DeepSeek / Claude / OpenAI / Gemini / Ollama…) — pick what fits.",
+              zh: "顶层 `llm` 指定 provider 与 model，或用 `--provider` 临时覆盖。支持 DeepSeek / 火山引擎豆包 / Claude / OpenAI / Ollama 等 11 个 provider，按需求选择。",
+              en: "Set provider/model at top-level `llm`, or override with `--provider`. 11 providers supported (DeepSeek / Volcengine Doubao / Claude / OpenAI / Ollama…) — pick what fits.",
             },
             code: `llm:
   provider: "deepseek"
   model: "deepseek-chat"`,
           },
           {
-            heading: { zh: "优云智算 CompShare（赞助商）", en: "CompShare (优云智算 · sponsor)" },
+            heading: { zh: "火山引擎（赞助商）", en: "Volcengine (sponsor)" },
             body: {
-              zh: "本项目的赞助商**优云智算（UCloud）** 提供 OpenAI 兼容的模型 API，已作为内置 provider `compshare` 接入——base_url 已写死，你**只需填自己的 key 和模型名**即可使用（key 在 console.compshare.cn 获取，模型如 `deepseek-ai/DeepSeek-R1`）。在网页 Studio 的「供应商」面板里粘贴 key 即可；命令行设 `COMPSHARE_API_KEY` 环境变量。",
-              en: "Our sponsor **CompShare (优云智算 / UCloud)** offers an OpenAI-compatible model API, wired in as the built-in `compshare` provider — the base URL is baked in, so you **just supply your own key and a model name** (get the key at console.compshare.cn; models like `deepseek-ai/DeepSeek-R1`). Paste the key in the Studio Providers panel, or set the `COMPSHARE_API_KEY` env var for the CLI.",
+              zh: "本项目的赞助商**火山引擎**（字节跳动）提供豆包 / Kimi / GLM / DeepSeek 等大模型，已作为内置 provider `volcengine` 接入（火山方舟 Ark，OpenAI 兼容端点已写死）。三点须知：① 豆包是**云端闭源模型，不可下载**，必须先注册拿 key（当前活动注册领 2500 万 Tokens）；② key 在 console.volcengine.com/ark 创建，**模型要先在方舟控制台开通**才能调用；③ 模型 ID 带版本后缀（如 `doubao-seed-2-1-pro-260628`），填 key 后在 Studio「供应商」面板点「获取模型列表」拉你已开通的全量模型。同一账号还能给 Claude Code / Codex 配中转（供应商面板「本地 CLI」区一键预填端点与模型映射）。",
+              en: "Our sponsor **Volcengine** (ByteDance) serves Doubao / Kimi / GLM / DeepSeek models, wired in as the built-in `volcengine` provider (Ark, OpenAI-compatible endpoint baked in). Three notes: ① Doubao models are **cloud-only and not downloadable** — you need a key (sign-up promo grants 25M tokens); ② create the key at console.volcengine.com/ark and **activate the model in the Ark console first**; ③ model IDs carry version suffixes (e.g. `doubao-seed-2-1-pro-260628`) — after saving the key, click “Fetch model list” in the Studio Providers panel to pull everything you've activated. The same account can also relay the local coding CLIs (one-click preset in the Providers panel).",
             },
             code: `llm:
-  provider: "compshare"
-  model: "deepseek-ai/DeepSeek-R1"
-# 或命令行：COMPSHARE_API_KEY=sk-... ao run workflow.yaml --provider compshare --model deepseek-ai/DeepSeek-R1`,
+  provider: "volcengine"
+  model: "doubao-seed-2-1-pro-260628"
+# 或命令行：ARK_API_KEY=... ao run workflow.yaml --provider volcengine`,
           },
           {
             heading: { zh: "7 种免 key 方式", en: "7 key-free options" },
